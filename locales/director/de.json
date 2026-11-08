@@ -43,5 +43,6 @@
  "done.run": "Lauf fertig",
  "done.mv": "MV-Entwurf bereit",
  "done.verify": "Beleg geprüft: Film, EDL und Takes stimmen überein",
+ "done.verify_no_takes": "Beleg geprüft: Film und EDL stimmen überein (Takes nicht neu gelesen; mit --takes prüfen)",
  "notice.NOT_VERIFIED_BY_NIKUNIKU": "Nicht von nikuniku verifiziert: Die Takes stammen aus einem lokalen Protokoll ohne Serversignatur; belegt ist nur die Integrität des Schnitts"
 }

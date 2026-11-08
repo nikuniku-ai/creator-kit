@@ -43,5 +43,6 @@
  "done.run": "전체 실행 완료",
  "done.mv": "MV 초안 준비됨",
  "done.verify": "영수증 확인 완료: 영상, EDL, 테이크가 일치합니다",
+ "done.verify_no_takes": "영수증 확인 완료: 영상과 EDL이 일치합니다(테이크는 다시 읽지 않음, --takes로 확인)",
  "notice.NOT_VERIFIED_BY_NIKUNIKU": "nikuniku 검수 미확인: 테이크는 서버 서명이 없는 로컬 기록에서 왔으며, 합치기 무결성만 증명합니다"
 }

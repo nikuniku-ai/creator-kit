@@ -43,10 +43,12 @@ const strings=inputs=>inputs&&typeof inputs==='object'&&!Array.isArray(inputs)&&
 //   outputHost: base URL put in output links; redirectFiles: /files/* answers 302 to this URL
 //   badRunId: runs answer an invalid job_id; nullSnapshot: recipe-runs answer data:null;
 //   badLinkSha: output links carry a wrong sha256; tamperFiles: /files/* flips the first byte
+// recipe-runs (★ CORE-ASKS C4 proposal): a run is visible only in the workspace that made it, and its snapshot echoes the
+// inputs it was run with (shot_json, plan_sha256, take) so a client can bind the verdict to one shot of one plan.
 export function start(options={}){
  const director={outcomes:{},maxUnits:40,files:{},outputHost:null,...options.director};
  const requests=[],runs=new Map(),byKey=new Map(),quotes=new Map(),drafts=[];let seq=0;
- const recipe=(method,path,body,base)=>{
+ const recipe=(method,path,body,base,query)=>{
   let m;
   if(method==='POST'&&(m=path.match(/^\/v1\/recipes\/([a-z][a-z0-9_]{1,63})\/quotes$/))){
    if(!exact(body,['workspace_id','inputs'])||!strings(body.inputs))return err(400,'INVALID_INPUT','quotes takes exactly {workspace_id, inputs} with string inputs');
@@ -61,16 +63,16 @@ export function start(options={}){
    if(body.max_credits<director.maxUnits)return err(402,'ABOVE_MAX_CREDITS','max_credits is below the quote');
    const shot=JSON.parse(body.inputs.shot_json),take=Number(body.inputs.take),job=`job_${shot.id}_${take}`;
    const outcome=(director.outcomes[shot.id]??[])[take-1]??{verdict:'passed'};
-   const run={public:{run_id:job,job_id:director.badRunId?'bad id!':job,state:'queued',recipe_id:m[1],recipe_version:'1'},shot:shot.id,take,outcome,polls:0};
+   const run={public:{run_id:job,job_id:director.badRunId?'bad id!':job,state:'queued',recipe_id:m[1],recipe_version:'1'},shot:shot.id,take,outcome,polls:0,workspace:body.workspace_id,inputs:body.inputs};
    runs.set(job,run);byKey.set(body.idempotency_key,job);return ok(run.public);
   }
   if(method==='GET'&&(m=path.match(/^\/v1\/recipe-runs\/([^/?]+)$/))){
-   const run=runs.get(m[1]);if(!run)return err(404,'NOT_FOUND','no such run');
+   const run=runs.get(m[1]);if(!run||(run.workspace??WS)!==query.get('workspace_id'))return err(404,'NOT_FOUND','no such run');
    if(director.nullSnapshot)return ok(null);
    const o=run.outcome;run.polls++;
    if(o.polls&&run.polls<=o.polls)return ok({...run.public,state:'running'});
    if(o.state)return ok({...run.public,state:o.state,acceptance:null,route:null});
-   const snap={...run.public,state:'succeeded',route:o.route??'general',charged_units:o.charged_units??(o.verdict==='passed'?director.maxUnits:null)};
+   const snap={...run.public,...(run.inputs?{inputs:run.inputs}:{}),state:'succeeded',route:o.route??'general',charged_units:o.charged_units??(o.verdict==='passed'?director.maxUnits:null)};
    if(o.verdict==='passed'){const bytes=output(run);snap.output_sha256=createHash('sha256').update(bytes).digest('hex');}
    if(o.acceptance!=='absent')snap.acceptance={verdict:o.verdict,failure_class:o.failure_class??null,checks:[]};
    return ok(snap);
@@ -95,7 +97,7 @@ export function start(options={}){
     const route=routes[`${req.method} ${path}`];
     const authed=req.headers.authorization===`Bearer ${KEY}`;
     const open=path.startsWith('/v1/pricing')||path.startsWith('/v1/capabilities');
-    const r=!authed&&!open?err(401,'KEY_INVALID','API key is missing or invalid'):route?route():recipe(req.method,path,body,base)??media(req.method,path,body,{drafts,director})??err(404,'NOT_FOUND','Route not found');
+    const r=!authed&&!open?err(401,'KEY_INVALID','API key is missing or invalid'):route?route():recipe(req.method,path,body,base,new URL(req.url,'http://x').searchParams)??media(req.method,path,body,{drafts,director})??err(404,'NOT_FOUND','Route not found');
     res.writeHead(r.status,{'content-type':'application/json'});res.end(JSON.stringify(r.body));
    });
   });

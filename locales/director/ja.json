@@ -43,5 +43,6 @@
  "done.run": "全工程完了",
  "done.mv": "MV 下書きの準備完了",
  "done.verify": "レシートを照合しました：本編・EDL・テイクが一致",
+ "done.verify_no_takes": "レシートを照合しました：本編・EDL が一致（テイクは未照合。--takes で照合）",
  "notice.NOT_VERIFIED_BY_NIKUNIKU": "nikuniku による検収は未確認です：テイクはサーバー署名のないローカル台帳に基づくもので、結合の完全性のみを示します"
 }

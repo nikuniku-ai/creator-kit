@@ -43,5 +43,6 @@
  "done.run": "Proses selesai",
  "done.mv": "Draf MV siap",
  "done.verify": "Tanda terima diperiksa: film, EDL, dan take cocok",
+ "done.verify_no_takes": "Tanda terima diperiksa: film dan EDL cocok (take tidak dibaca ulang; tambahkan --takes untuk memeriksanya)",
  "notice.NOT_VERIFIED_BY_NIKUNIKU": "Belum diverifikasi oleh nikuniku: take berasal dari catatan lokal tanpa tanda tangan server; ini hanya membuktikan keutuhan gabungan"
 }

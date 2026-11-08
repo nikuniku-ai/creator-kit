@@ -43,5 +43,6 @@
  "done.run": "Exécution terminée",
  "done.mv": "Brouillon de MV prêt",
  "done.verify": "Reçu vérifié : le film, l'EDL et les prises concordent",
+ "done.verify_no_takes": "Reçu vérifié : le film et l'EDL concordent (prises non relues ; ajoutez --takes pour les vérifier)",
  "notice.NOT_VERIFIED_BY_NIKUNIKU": "Non vérifié par nikuniku : les prises proviennent d'un registre local sans signature du serveur ; seule l'intégrité du montage est prouvée"
 }

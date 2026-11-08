@@ -14,7 +14,7 @@ import {readFileSync,existsSync,mkdirSync,mkdtempSync,writeFileSync,renameSync,u
 import {tmpdir} from 'node:os';
 import {join,dirname,relative,resolve,isAbsolute} from 'node:path';
 import {Refusal,ApiError,apiBase,apiKey,validId,call} from '../client/nikuniku-api.mjs';
-import {judge,DEFAULT_RECIPE} from './shoot.mjs';
+import {judge,DEFAULT_RECIPE,projectShot} from './shoot.mjs';
 import {parse,need} from './cli.mjs';
 import {readJson,writeJson,ff,duration} from './breakdown.mjs';
 import {validate} from './jsonschema.mjs';
@@ -35,8 +35,12 @@ export const CHECKED={server_acceptance:'checked_at_assemble',server_accepted:tr
 
 // Ask the server about each adopted take; returns a refusal naming every refused take (the exit code follows the first
 // kind in this order), or null. The run the server describes must be THIS take: its run id and job id, the shot's recipe,
-// and no run adopted by two shots (independent verifier on 2cee4a8: crossshot / otherrecipe).
-async function serverCheck(picks,ws,{key,api,recipe}){
+// and no run adopted by two shots (independent verifier on 2cee4a8: crossshot / otherrecipe). The snapshot must also echo
+// the inputs the run was made with — this plan's sha256, this shot's projection, this take number — so a real run of
+// another shot or another plan is refused; a snapshot without inputs is refused too (fail closed; the echo is part of the
+// CORE-ASKS C4 proposal, second independent verifier on 7d5f042).
+const sameInputs=(got,want)=>!!got&&typeof got==='object'&&Object.entries(want).every(([k,v])=>got[k]===v);
+async function serverCheck(picks,ws,{key,api,recipe,planSha}){
  const q=encodeURIComponent,found={SERVER_RUN_NOT_FOUND:[],SERVER_RUN_MISMATCH:[],SERVER_NOT_PASSED:[],SERVER_SHA_MISMATCH:[]};
  const seen=new Map();
  for(const p of picks){const id=p.take.run_id,add=(c,m)=>found[c].push(`${p.shot.id}: ${m}`);
@@ -47,6 +51,8 @@ async function serverCheck(picks,ws,{key,api,recipe}){
   const judged=judge(snap),want=p.shot.recipe_id??recipe??DEFAULT_RECIPE;
   if(snap.run_id!==id||snap.job_id!==p.take.job_id)add('SERVER_RUN_MISMATCH',`the server describes run ${snap.run_id}/job ${snap.job_id}, the ledger ${id}/${p.take.job_id}`);
   else if(snap.recipe_id!==want)add('SERVER_RUN_MISMATCH',`run ${id} is of recipe ${snap.recipe_id}, not ${want}`);
+  else if(!sameInputs(snap.inputs,{shot_json:JSON.stringify(projectShot(p.shot)),plan_sha256:planSha,take:String(p.take.take)}))
+   add('SERVER_RUN_MISMATCH',`run ${id} was not made for take ${p.take.take} of this shot in this plan (or the server did not say what it was made for)`);
   else if(judged?.verdict!=='passed')add('SERVER_NOT_PASSED',`run ${id} is ${judged?.verdict??'still pending'}`);
   else if(judged.output_sha256!==p.sha)add('SERVER_SHA_MISMATCH',`the server's sha256 ${judged.output_sha256.slice(0,12)}… is not the file's ${p.sha.slice(0,12)}…`);}
  const codes=Object.keys(found).filter(c=>found[c].length);if(!codes.length)return null;
@@ -71,7 +77,7 @@ export async function assemble(o){
   if(!existsSync(p.file)){bad.push(`${p.shot.id}: ${p.file} is missing`);continue;}
   p.bytes=readFileSync(p.file);p.sha=sha(p.bytes);if(p.sha!==p.take.output_sha256)bad.push(`${p.shot.id}: file sha256 ${p.sha.slice(0,12)}… is not the server's ${String(p.take.output_sha256).slice(0,12)}…`);}
  if(bad.length)return {exit:3,result:{ok:false,error:{code:'TAKE_FILE_MISMATCH',message:bad.join('; ')+'; nothing was written'}}};
- const refused=await serverCheck(picks,validId(ledger.workspace_id,'workspace_id'),{key,api,recipe:o.recipe});if(refused)return refused;
+ const refused=await serverCheck(picks,validId(ledger.workspace_id,'workspace_id'),{key,api,recipe:o.recipe,planSha});if(refused)return refused;
  // What is cut is a private copy of the very bytes that were hashed and confirmed, not the take files, which could change
  // between the check and ffmpeg (TOCTOU, independent verifier on 2cee4a8). The copies have fixed names, so no path the
  // caller chose ever reaches the concat list; a newline in the private folder's own path is refused outright.
@@ -126,7 +132,7 @@ export async function command(args){
  if(o.verify!==undefined){
   const problems=verify(o.verify,{takes:o.takes});
   if(problems.length)return {exit:3,result:{ok:false,error:{code:'RECEIPT_MISMATCH',message:problems.join('; ')},data:{problems}}};
-  return {result:{ok:true,data:{receipt:o.verify,checked_takes:o.takes!==undefined,...UNVERIFIED}},done:'verify',notice:NOTICE};
+  return {result:{ok:true,data:{receipt:o.verify,checked_takes:o.takes!==undefined,...UNVERIFIED}},done:o.takes!==undefined?'verify':'verify_no_takes',notice:NOTICE};
  }
  return assemble(o);
 }

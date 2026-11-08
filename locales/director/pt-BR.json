@@ -43,5 +43,6 @@
  "done.run": "Execução concluída",
  "done.mv": "Rascunho de MV pronto",
  "done.verify": "Recibo conferido: filme, EDL e takes conferem",
+ "done.verify_no_takes": "Recibo conferido: filme e EDL conferem (takes não relidos; use --takes para conferi-los)",
  "notice.NOT_VERIFIED_BY_NIKUNIKU": "Não verificado pela nikuniku: os takes vêm de um registro local sem assinatura do servidor; isso só comprova a integridade da montagem"
 }

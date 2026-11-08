@@ -10,6 +10,7 @@ import {makeFixtures} from '../scripts/make-fixtures.mjs';
 import {validate} from '../director/jsonschema.mjs';
 import {semantics} from '../director/semantics.mjs';
 import {cli,tmp} from './helpers.mjs';
+import {projectShot} from '../director/shoot.mjs';
 import {start,KEY} from './mock-api.mjs';
 const sha=b=>createHash('sha256').update(b).digest('hex');
 const schema=n=>JSON.parse(readFileSync(`schemas/${n}.schema.json`,'utf8'));
@@ -19,10 +20,12 @@ before(async()=>{fixtures=makeFixtures().takes;mock=await start();});after(()=>m
 const env=()=>({NIKUNIKU_API_BASE:mock.base,NIKUNIKU_API_KEY:KEY});
 // The server side of a ledger: every adopted take is a run the mock knows, passed, with these take files as its output.
 // The recipe is the plan shot's recipe_id (the example plan: white_studio_single), as shoot sends it.
-function serve(x,outcome={verdict:'passed'},{recipe='white_studio_single',files}={}){
- const l=JSON.parse(readFileSync(x.ledgerFile,'utf8'));
+// Each run echoes the inputs shoot sent for it (the shot's projection, the plan sha256, the take number).
+function serve(x,outcome={verdict:'passed'},{recipe='white_studio_single',files,plan=x.planFile}={}){
+ const l=JSON.parse(readFileSync(x.ledgerFile,'utf8')),p=JSON.parse(readFileSync(plan,'utf8')),planSha=sha(readFileSync(plan));
  for(const s of l.shots)if(s.adopted){mock.director.files[s.shot_id]=files?.[s.shot_id]??join(x.takes,s.shot_id+'.mp4');
-  mock.runs.set(s.adopted.run_id,{public:{run_id:s.adopted.run_id,job_id:s.adopted.job_id,state:'queued',recipe_id:recipe,recipe_version:'1'},shot:s.shot_id,take:s.adopted.take,outcome,polls:0});}
+  const inputs={shot_json:JSON.stringify(projectShot(p.shots.find(v=>v.id===s.shot_id))),plan_sha256:planSha,take:String(s.adopted.take)};
+  mock.runs.set(s.adopted.run_id,{public:{run_id:s.adopted.run_id,job_id:s.adopted.job_id,state:'queued',recipe_id:recipe,recipe_version:'1'},shot:s.shot_id,take:s.adopted.take,outcome,polls:0,workspace:l.workspace_id,inputs});}
  return x;
 }
 
@@ -184,6 +187,28 @@ test('AC11: the server run must be this take: another run id/job id, another rec
  for(const [why,make] of cases){mock.reset();const x=make();const r=await assemble(x);
   assert.equal(r.code,3,`${why}: ${r.stderr}`);assert.equal(r.err.error.code,'SERVER_RUN_MISMATCH',why);assert.equal(existsSync(join(x.dir,'out')),false,why);}
 });
+// AC11 (second independent verifier on 7d5f042): the server's run must have been made for THIS shot of THIS plan in THIS
+// workspace. Real runs of another shot or another plan are refused, and so is a snapshot that does not say (fail closed).
+function swapRuns(x){const l=JSON.parse(readFileSync(x.ledgerFile,'utf8')),[a,b]=l.shots,ta=a.takes.find(t=>t.take===a.adopted.take),tb=b.takes.find(t=>t.take===b.adopted.take);
+ for(const k of ['run_id','job_id','output_sha256'])[ta[k],tb[k]]=[tb[k],ta[k]];
+ a.adopted={...a.adopted,run_id:ta.run_id,job_id:ta.job_id};b.adopted={...b.adopted,run_id:tb.run_id,job_id:tb.job_id};
+ const f1=readFileSync(join(x.takes,'s1.mp4')),f2=readFileSync(join(x.takes,'s2.mp4'));writeFileSync(join(x.takes,'s1.mp4'),f2);writeFileSync(join(x.takes,'s2.mp4'),f1);
+ writeFileSync(x.ledgerFile,JSON.stringify(l));}
+test('AC11: real runs swapped between shots, or real runs of another plan, or another workspace → refused, nothing written',async()=>{
+ const cases=[
+  ['runs swapped between s1 and s2','SERVER_RUN_MISMATCH',()=>{const x=serve(project());swapRuns(x);return x;}],
+  ['the runs were made for another plan','SERVER_RUN_MISMATCH',()=>{const x=project({edit:p=>{p.shots[0].action='a shot the server never generated';}});
+   const other=join(x.dir,'plan-a.json'),p=JSON.parse(readFileSync(x.planFile,'utf8'));p.shots[0].action=JSON.parse(readFileSync('schemas/examples/plan.ab-merge.json','utf8')).shots[0].action;
+   writeFileSync(other,JSON.stringify(p));return serve(x,undefined,{plan:other});}],
+  ['same shots, but the runs were made for another revision of the plan','SERVER_RUN_MISMATCH',()=>{const x=project(),other=join(x.dir,'plan-r2.json');
+   writeFileSync(other,readFileSync(x.planFile,'utf8').replace('"revision":1','"revision":2'));return serve(x,undefined,{plan:other});}],
+  ['the snapshot does not echo its inputs','SERVER_RUN_MISMATCH',()=>{const x=serve(project());for(const r of mock.runs.values())delete r.inputs;return x;}],
+  ['the ledger names another workspace','SERVER_RUN_NOT_FOUND',()=>{const x=serve(project());for(const r of mock.runs.values())r.workspace='ws_999999999999999999999999';return x;}],
+  ['the server describes another run_id','SERVER_RUN_MISMATCH',()=>{const x=serve(project());mock.runs.get('job_s2_1').public.run_id='job_s2_9';return x;}],
+ ];
+ for(const [why,code,make] of cases){mock.reset();const x=make();const r=await assemble(x);
+  assert.equal(r.code,3,`${why}: ${r.stderr}`);assert.equal(r.err.error.code,code,why);assert.equal(existsSync(join(x.dir,'out')),false,why);}
+});
 test('AC11: every refused take is named, not only the first kind of problem',async()=>{
  const x=serve(project());mock.runs.get('job_s1_2').outcome={state:'cancelled'};mock.runs.delete('job_s2_1');
  const r=await assemble(x);assert.equal(r.code,3);assert.match(r.err.error.message,/\bs1\b/);assert.match(r.err.error.message,/\bs2\b/);
@@ -199,6 +224,12 @@ test('AC11: verify checks integrity but never reports the cut as server-accepted
  assert.match(v.stderr,NOT_VERIFIED);assert.doesNotMatch(v.stderr,/Film assembled/,'verify does not claim it assembled anything');
  const zh=await cli(['assemble','--verify',rPath,'--lang','zh-Hant']);assert.equal(zh.code,0);assert.match(zh.stderr,/未經 nikuniku 驗收/);
  assert.equal(mock.requests.length,0,'verify is offline');
+});
+test('verify without --takes does not claim the takes were checked',async()=>{
+ const x=serve(project());assert.equal((await assemble(x)).code,0);const rPath=join(x.dir,'out','qa-receipt.json');
+ const v=await cli(['assemble','--verify',rPath]);assert.equal(v.code,0);assert.equal(v.json.data.checked_takes,false);
+ assert.doesNotMatch(v.stderr.split('\n')[0],/takes match/i);assert.match(v.stderr.split('\n')[0],/not re-read/);
+ const t=await cli(['assemble','--verify',rPath,'--takes',x.takes]);assert.match(t.stderr.split('\n')[0],/takes match/i);
 });
 test('AC11: a receipt edited to claim server acceptance is refused by verify, not reported as accepted',async()=>{
  const x=serve(project());assert.equal((await assemble(x)).code,0);const rPath=join(x.dir,'out','qa-receipt.json');

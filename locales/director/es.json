@@ -43,5 +43,6 @@
  "done.run": "Ejecución terminada",
  "done.mv": "Borrador de MV listo",
  "done.verify": "Recibo comprobado: la película, el EDL y las tomas coinciden",
+ "done.verify_no_takes": "Recibo comprobado: la película y el EDL coinciden (no se releyeron las tomas; usa --takes para comprobarlas)",
  "notice.NOT_VERIFIED_BY_NIKUNIKU": "No verificado por nikuniku: las tomas provienen de un registro local sin firma del servidor; solo prueba la integridad del montaje"
 }
