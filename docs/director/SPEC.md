@@ -155,15 +155,16 @@ tests/*.test.mjs   tests/mock-api.mjs（擴充）
 - AC6 的「伺服端標回 explicit」需要 C2；本次只驗客戶端那一半：請求裡沒有 `provider`／`route`／`model` 鍵，且伺服端回的 `route` 原樣入帳。
 
 ### S9 生成與抽卡
-- 指令：`nikuniku shoot <plan.json> --ledger gacha-ledger.json [--shot <id>] [--max-credits <n>] [--workspace <id>]`
-- 每個 take：`POST /v1/recipes/{recipe_id}/quotes {workspace_id, inputs:{shot_json, plan_sha256, take}}` → 預算檢查 → `POST /v1/recipes/{recipe_id}/runs {…, max_credits, dry_run:false, idempotency_key}` → 輪詢 `GET /v1/recipe-runs/{run_id}` 直到 `state` 終態且 `acceptance.verdict ∈ {passed, failed}`。
+- 指令：`nikuniku shoot <plan.json> --ledger gacha-ledger.json [--shot <id> …] [--source <breakdown.json> …] [--max-credits <n>] [--workspace <id>] [--takes <dir>] [--timeout <s>] [--recipe <id>]`
+- 配方：`shot.recipe_id` > `--recipe` > `director_shot`。**`director_shot` 與下列 inputs 是對核心的提案**：核心現有配方（如 `white_studio_single`）的 inputs 是 `{image, prompt}`，核心的配方 input 驗證只收字串值（`apps/api/src/modules/generation/recipe-runs.ts:14-30`，nikuniku `ba6014bf`），所以 `take` 以字串送出；要真的跑，核心需新增吃 `shot_json／plan_sha256／take` 的配方定義（CORE-ASKS C4）。
+- 每個 take：`POST /v1/recipes/{recipe_id}/quotes {workspace_id, inputs:{shot_json, plan_sha256, take:"<n>"}}`（body 鍵集合與核心 `v1.ts` 的 `exact()` 相同） → 預算檢查 → `POST /v1/recipes/{recipe_id}/runs {…, max_credits, dry_run:false, idempotency_key}` → 輪詢 `GET /v1/recipe-runs/{run_id}` 直到 `state` 終態且 `acceptance.verdict ∈ {passed, failed}`。
 - `idempotency_key = "dk-" + sha256(workspace_id|recipe_id|plan_sha256|shot_id|take)[:40]`：換 workspace、recipe、plan 任何一個 byte 都是新鍵。
 - **持久化狀態機**（每一步後以「寫暫存檔＋rename」原子覆寫 ledger；ledger 旁 `<ledger>.lock` 以 O_EXCL 建立，存在即 exit 1 `LEDGER_LOCKED`，同機兩個程序不會同時拍同一份 ledger）：
   1. 報價成功 → 寫入 take `{idempotency_key, quote_id, quoted_units, run_id:null, job_id:null, verdict:"pending"}`；
   2. run 回來 → 填 `run_id／job_id`；
   3. 輪詢到判定 → 填 `verdict／failure_class／route／charged_units／output_sha256`。
   重啟時：`run_id` 為 null 的 take 以**同一把** idempotency_key 再送 run（伺服端依既有合約回原 job，不會多扣）；有 `run_id` 的只讀快照，不重送。
-- **輪詢**：每 `NIKUNIKU_POLL_MS`（預設 5000）讀一次，總時限 `--timeout`（預設 1800 秒）。終態對應：`succeeded`＋`acceptance.verdict∈{passed,failed}` → 照判定；`failed`／`cancelled` → `verdict:"failed"`、`failure_class:"run_failed"`／`"run_cancelled"`；`succeeded` 而沒有 `acceptance` 欄位，或 verdict 不在 `{passed,failed,pending}` → `unavailable`（fail closed）；`acceptance.verdict:"pending"` 或非終態 → 繼續等，逾時 → 鏡 `acceptance_timeout`、exit 1 `ACCEPTANCE_TIMEOUT`，不採用。伺服端 `failed` 而 `failure_class` 為空 → 記為 `unspecified`（同樣計入同類失敗）。
+- **輪詢**：每 `NIKUNIKU_POLL_MS`（預設 5000）讀一次，總時限 `--timeout`（預設 1800 秒）。終態對應：`succeeded`＋`acceptance.verdict∈{passed,failed}` → 照判定；`failed`／`cancelled` → `verdict:"failed"`、`failure_class:"run_failed"`／`"run_cancelled"`；`succeeded` 而沒有 `acceptance` 欄位，或 verdict 不在 `{passed,failed,pending}`，或 `passed` 卻沒有合法 `output_sha256`（無法綁定成片 bytes） → `unavailable`（fail closed）；`acceptance.verdict:"pending"` 或非終態 → 繼續等，逾時 → 鏡 `acceptance_timeout`、exit 1 `ACCEPTANCE_TIMEOUT`，不採用。伺服端 `failed` 而 `failure_class` 為空或不合 `^[a-z][a-z0-9_]{0,63}$` → 記為 `unspecified`（同樣計入同類失敗）；run 本身 `failed`／`cancelled` 記 `run_failed`／`run_cancelled`。
 - 抽卡規則（純函式 `director/gacha.mjs#decide`，AC7）：
   1. 依 take 順序，**第一個** `verdict:"passed"` 的 take 採用；之後不再拍。
   2. 同一 `failure_class` 累計失敗達 `budget.max_same_failure`（預設且上限 3）→ `stopped_same_failure`，停。
