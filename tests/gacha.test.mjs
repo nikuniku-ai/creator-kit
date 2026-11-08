@@ -219,8 +219,10 @@ test('D1: run --out into a folder that does not exist yet creates it and finishe
  const r=await cli(['run',f,'--out',out],env());
  assert.equal(r.code,0,r.stderr);assert.equal(existsSync(out),true);
  assert.equal(existsSync(join(dir,'never','created','gacha-ledger.json')),true);
- // AC11 (ACCEPT-1e5e347; CORE-ASKS C7): even a run straight from the server ledger is labelled until acceptance is signed.
- assert.equal(r.json.data.assemble.server_accepted,false);assert.match(r.stderr,/not verified by nikuniku/i);
+ // AC11 (ACCEPT-ae8c4ef; Studio ruling): run's assemble step re-asks the server about every adopted run before cutting.
+ assert.equal(r.json.data.assemble.server_accepted,true);assert.equal(r.json.data.assemble.server_acceptance,'checked_at_assemble');
+ const checks=mock.requests.filter(q=>q.method==='GET'&&q.path.startsWith('/v1/recipe-runs/')).map(q=>q.path);
+ assert.ok(checks.filter(p=>p==='/v1/recipe-runs/job_s1_1').length>=2,'s1 polled by shoot and checked again by assemble');
  mock.reset();const x=planFile(),ledger=join(x.dir,'new-dir','ledger.json');
  const s=await cli(['shoot',x.f,'--ledger',ledger,'--shot','s1'],env());
  assert.equal(s.code,0,s.stderr);readLedger(ledger);

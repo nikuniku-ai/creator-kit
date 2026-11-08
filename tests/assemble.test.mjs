@@ -1,6 +1,6 @@
 // AC8 (P2.6, SPEC §3 S10): only adopted takes whose file matches the server sha256 are cut together (hard cuts, stream
 // copy); the QaReceipt binds the output sha256, the EDL sha256 and every take; --verify fails on a single changed byte.
-import {test,before} from 'node:test';
+import {test,before,after,beforeEach} from 'node:test';
 import assert from 'node:assert/strict';
 import {readFileSync,writeFileSync,copyFileSync,existsSync,mkdirSync} from 'node:fs';
 import {createHash} from 'node:crypto';
@@ -9,11 +9,20 @@ import {makeFixtures} from '../scripts/make-fixtures.mjs';
 import {validate} from '../director/jsonschema.mjs';
 import {semantics} from '../director/semantics.mjs';
 import {cli,tmp} from './helpers.mjs';
+import {start,KEY} from './mock-api.mjs';
 const sha=b=>createHash('sha256').update(b).digest('hex');
 const schema=n=>JSON.parse(readFileSync(`schemas/${n}.schema.json`,'utf8'));
 const valid=(n,v)=>assert.deepEqual([...validate(schema(n),v),...semantics(n,v)],[],n);
-let fixtures;
-before(()=>{fixtures=makeFixtures().takes;});
+let fixtures,mock;
+before(async()=>{fixtures=makeFixtures().takes;mock=await start();});after(()=>mock.server.close());beforeEach(()=>mock.reset());
+const env=()=>({NIKUNIKU_API_BASE:mock.base,NIKUNIKU_API_KEY:KEY});
+// The server side of a ledger: every adopted take is a run the mock knows, passed, with these take files as its output.
+function serve(x,outcome={verdict:'passed'}){
+ const l=JSON.parse(readFileSync(x.ledgerFile,'utf8'));
+ for(const s of l.shots)if(s.adopted){mock.director.files[s.shot_id]=join(x.takes,s.shot_id+'.mp4');
+  mock.runs.set(s.adopted.run_id,{public:{run_id:s.adopted.run_id,job_id:s.adopted.job_id,state:'queued',recipe_id:'director_shot',recipe_version:'1'},shot:s.shot_id,take:s.adopted.take,outcome,polls:0});}
+ return x;
+}
 
 // A plan, its takes and a ledger in which the server adopted s1 take 2 and s2 take 1.
 function project({edit,ledgerEdit}={}){
@@ -31,10 +40,10 @@ function project({edit,ledgerEdit}={}){
  const ledgerFile=join(dir,'ledger.json');writeFileSync(ledgerFile,JSON.stringify(ledger));
  return {dir,planFile,ledgerFile,takes,out:join(dir,'out','final.mp4')};
 }
-const assemble=x=>cli(['assemble',x.planFile,'--ledger',x.ledgerFile,'--takes',x.takes,'--out',x.out],{NIKUNIKU_API_KEY:''});
+const assemble=(x,e=env())=>cli(['assemble',x.planFile,'--ledger',x.ledgerFile,'--takes',x.takes,'--out',x.out],e);
 
 test('AC8: assemble writes the film, an EDL and a receipt whose hash is the film sha256; --verify passes',async()=>{
- const x=project();const r=await assemble(x);assert.equal(r.code,0,r.stderr);
+ const x=serve(project());const r=await assemble(x);assert.equal(r.code,0,r.stderr);
  const dir=join(x.dir,'out'),receipt=JSON.parse(readFileSync(join(dir,'qa-receipt.json'),'utf8')),edl=JSON.parse(readFileSync(join(dir,'edl.json'),'utf8'));
  valid('qa-receipt',receipt);valid('edl',edl);
  assert.equal(receipt.output_sha256,sha(readFileSync(x.out)));assert.equal(receipt.output_bytes,readFileSync(x.out).length);
@@ -45,13 +54,13 @@ test('AC8: assemble writes the film, an EDL and a receipt whose hash is the film
  const v=await cli(['assemble','--verify',join(dir,'qa-receipt.json'),'--takes',x.takes]);assert.equal(v.code,0,v.stderr);
 });
 test('AC8: one changed byte in the film → --verify exit 3 RECEIPT_MISMATCH',async()=>{
- const x=project();assert.equal((await assemble(x)).code,0);
+ const x=serve(project());assert.equal((await assemble(x)).code,0);
  const film=readFileSync(x.out);film[film.length-1]^=1;writeFileSync(x.out,film);
  const v=await cli(['assemble','--verify',join(x.dir,'out','qa-receipt.json')]);
  assert.equal(v.code,3);assert.equal(v.err.error.code,'RECEIPT_MISMATCH');
 });
 test('--verify also catches an edited EDL and, with --takes, an edited take',async()=>{
- const x=project();assert.equal((await assemble(x)).code,0);const dir=join(x.dir,'out');
+ const x=serve(project());assert.equal((await assemble(x)).code,0);const dir=join(x.dir,'out');
  const edlPath=join(dir,'edl.json'),edl=readFileSync(edlPath,'utf8');
  writeFileSync(edlPath,edl.replace('job_s2_1','job_s2_9'));
  assert.equal((await cli(['assemble','--verify',join(dir,'qa-receipt.json')])).code,3);
@@ -66,15 +75,15 @@ test('a shot without an adopted take → exit 3 TAKE_NOT_ACCEPTED and nothing is
  assert.equal(existsSync(join(x.dir,'out')),false);
 });
 test('a take file that differs from the server sha256 → exit 3 TAKE_FILE_MISMATCH, nothing written',async()=>{
- const x=project();const f=join(x.takes,'s1.mp4'),b=readFileSync(f);b[50]^=1;writeFileSync(f,b);
+ const x=serve(project());const f=join(x.takes,'s1.mp4'),b=readFileSync(f);b[50]^=1;writeFileSync(f,b);
  const r=await assemble(x);assert.equal(r.code,3);assert.equal(r.err.error.code,'TAKE_FILE_MISMATCH');assert.equal(existsSync(x.out),false);
 });
 test('a ledger for another plan → exit 2 LEDGER_MISMATCH',async()=>{
- const x=project();writeFileSync(x.planFile,readFileSync(x.planFile,'utf8').replace('"revision":1','"revision":2'));
+ const x=serve(project());writeFileSync(x.planFile,readFileSync(x.planFile,'utf8').replace('"revision":1','"revision":2'));
  const r=await assemble(x);assert.equal(r.code,2);assert.equal(r.err.error.code,'LEDGER_MISMATCH');
 });
 test('--verify: each EDL check stands alone — re-formatted bytes (sha) and a re-hashed edit (entry ↔ receipt)',async()=>{
- const x=project();assert.equal((await assemble(x)).code,0);const dir=join(x.dir,'out'),edlPath=join(dir,'edl.json'),rPath=join(dir,'qa-receipt.json');
+ const x=serve(project());assert.equal((await assemble(x)).code,0);const dir=join(x.dir,'out'),edlPath=join(dir,'edl.json'),rPath=join(dir,'qa-receipt.json');
  const edl=readFileSync(edlPath,'utf8');
  writeFileSync(edlPath,JSON.stringify(JSON.parse(edl)));            // same content, other bytes: only the sha256 check sees it
  let v=await cli(['assemble','--verify',rPath]);assert.equal(v.code,3);assert.match(v.err.error.message,/EDL sha256 differs/);
@@ -92,35 +101,65 @@ test('AC11: a ledger that adopts a take the server did not pass is refused (SCHE
   ['the adopted take has no verdict',l=>{Object.assign(l.shots[1].takes[0],{verdict:null});}],
   ['adopted on a shot whose status is not adopted',l=>{l.shots[1].status='exhausted';}],
  ];
- for(const [why,edit] of forged){const x=project();const l=JSON.parse(readFileSync(x.ledgerFile,'utf8'));edit(l);writeFileSync(x.ledgerFile,JSON.stringify(l));
+ for(const [why,edit] of forged){const x=serve(project());const l=JSON.parse(readFileSync(x.ledgerFile,'utf8'));edit(l);writeFileSync(x.ledgerFile,JSON.stringify(l));
   const r=await assemble(x);assert.equal(r.code,2,`${why}: ${r.stderr}`);assert.equal(r.err.error.code,'SCHEMA_INVALID',why);
   assert.equal(existsSync(join(x.dir,'out')),false,why);}
 });
 
-// AC11 (ACCEPT-1e5e347 FAIL; CORE-ASKS C7): a ledger that is consistent from end to end but was never issued by the server
-// cannot be told apart offline. Until the server signs acceptance, every cut is labelled "not verified by nikuniku" — in the
-// receipt, in assemble/verify/run output and in the human stderr line — and nothing ever reports it as server-accepted.
+// AC11 (ACCEPT-ae8c4ef FAIL; Studio ruling 2026-11-08): assemble needs a valid key and, before cutting, asks the server
+// (GET /v1/recipe-runs/{run_id}) about every adopted take: passed, and the server's output sha256 equals the file.
+// A self-consistent ledger the server never issued, a take the server did not pass, a sha256 the server does not report,
+// or no key → refused with its own code and nothing is written. verify only proves cut integrity: never "accepted".
 const NOT_VERIFIED=/not verified by nikuniku/i;
 function forgedProject(){
  return project({ledgerEdit:l=>{for(const s of l.shots){for(const t of s.takes){t.job_id=t.run_id=`never_server_${s.shot_id}_${t.take}`;}
   s.adopted.job_id=s.adopted.run_id=`never_server_${s.shot_id}_${s.adopted.take}`;}}});
 }
-test('AC11: a self-consistent ledger the server never issued cuts, but assemble labels it not verified by nikuniku',async()=>{
- const x=forgedProject();const r=await assemble(x);assert.equal(r.code,0,r.stderr);
- assert.equal(r.json.data.server_accepted,false);assert.equal(r.json.data.server_acceptance,'unverified');
- assert.match(r.stderr,NOT_VERIFIED);
- const receipt=JSON.parse(readFileSync(join(x.dir,'out','qa-receipt.json'),'utf8'));valid('qa-receipt',receipt);
- assert.equal(receipt.server_acceptance,'unverified');
+const runChecks=()=>mock.requests.filter(q=>q.method==='GET'&&q.path.startsWith('/v1/recipe-runs/'));
+test('AC11: a self-consistent ledger the server never issued → exit 3 SERVER_RUN_NOT_FOUND, nothing written',async()=>{
+ const x=forgedProject();const r=await assemble(x);
+ assert.equal(r.code,3,r.stderr);assert.equal(r.err.error.code,'SERVER_RUN_NOT_FOUND');assert.match(r.err.error.message,/never_server_s1_2/);
+ assert.equal(existsSync(join(x.dir,'out')),false);
+ assert.ok(runChecks().length>=1,'the server was asked');
+});
+test('AC11: assemble without a key, or with a malformed one → exit 2 API_KEY_REQUIRED, 0 requests, nothing written',async()=>{
+ for(const key of ['','short']){const x=serve(project());const r=await assemble(x,{...env(),NIKUNIKU_API_KEY:key});
+  assert.equal(r.code,2,key);assert.equal(r.err.error.code,'API_KEY_REQUIRED',key);assert.equal(existsSync(join(x.dir,'out')),false,key);}
+ assert.equal(mock.requests.length,0);
+});
+test('AC11: a key the server rejects → non-zero, the server error, nothing written',async()=>{
+ const x=serve(project());const r=await assemble(x,{...env(),NIKUNIKU_API_KEY:'nk_wrong_but_well_formed'});
+ assert.equal(r.code,1);assert.equal(r.err.error.code,'KEY_INVALID');assert.equal(existsSync(join(x.dir,'out')),false);
+});
+test('AC11: the server did not pass the adopted take (failed, still pending, no acceptance) → exit 3 SERVER_NOT_PASSED, nothing written',async()=>{
+ for(const outcome of [{verdict:'failed',failure_class:'framing'},{verdict:'pending'},{verdict:'passed',acceptance:'absent'}]){
+  mock.reset();const x=serve(project(),outcome);const r=await assemble(x);
+  assert.equal(r.code,3,JSON.stringify(outcome));assert.equal(r.err.error.code,'SERVER_NOT_PASSED',JSON.stringify(outcome));
+  assert.equal(existsSync(join(x.dir,'out')),false);}
+});
+test('AC11: the server passed it but reports another sha256 than the file → exit 3 SERVER_SHA_MISMATCH, nothing written',async()=>{
+ const x=serve(project());mock.director.files.s2=join(x.takes,'s1.mp4');
+ const r=await assemble(x);assert.equal(r.code,3);assert.equal(r.err.error.code,'SERVER_SHA_MISMATCH');assert.match(r.err.error.message,/\bs2\b/);
+ assert.equal(existsSync(join(x.dir,'out')),false);
+});
+test('AC11: a ledger the server confirms is cut; every adopted run was checked in the ledger workspace',async()=>{
+ const x=serve(project());const r=await assemble(x);assert.equal(r.code,0,r.stderr);
+ assert.deepEqual(runChecks().map(q=>q.url),['/v1/recipe-runs/job_s1_2?workspace_id=ws_000000000000000000000001','/v1/recipe-runs/job_s2_1?workspace_id=ws_000000000000000000000001']);
+ assert.ok(runChecks().every(q=>q.authorization===`Bearer ${KEY}`));
+ assert.equal(r.json.data.server_accepted,true);assert.equal(r.json.data.server_acceptance,'checked_at_assemble');
+ assert.doesNotMatch(r.stderr,NOT_VERIFIED);
 });
 test('AC11: verify checks integrity but never reports the cut as server-accepted',async()=>{
- const x=forgedProject();assert.equal((await assemble(x)).code,0);const rPath=join(x.dir,'out','qa-receipt.json');
+ const x=serve(project());assert.equal((await assemble(x)).code,0);const rPath=join(x.dir,'out','qa-receipt.json');
+ mock.reset();
  const v=await cli(['assemble','--verify',rPath,'--takes',x.takes]);assert.equal(v.code,0,v.stderr);
  assert.equal(v.json.data.server_accepted,false);assert.equal(v.json.data.server_acceptance,'unverified');
  assert.match(v.stderr,NOT_VERIFIED);assert.doesNotMatch(v.stderr,/Film assembled/,'verify does not claim it assembled anything');
  const zh=await cli(['assemble','--verify',rPath,'--lang','zh-Hant']);assert.equal(zh.code,0);assert.match(zh.stderr,/未經 nikuniku 驗收/);
+ assert.equal(mock.requests.length,0,'verify is offline');
 });
 test('AC11: a receipt edited to claim server acceptance is refused by verify, not reported as accepted',async()=>{
- const x=forgedProject();assert.equal((await assemble(x)).code,0);const rPath=join(x.dir,'out','qa-receipt.json');
+ const x=serve(project());assert.equal((await assemble(x)).code,0);const rPath=join(x.dir,'out','qa-receipt.json');
  for(const claim of ['verified','signed',true]){
   const receipt=JSON.parse(readFileSync(rPath,'utf8'));writeFileSync(rPath+'.claim.json',JSON.stringify({...receipt,server_acceptance:claim}));
   const v=await cli(['assemble','--verify',rPath+'.claim.json']);assert.notEqual(v.code,0,String(claim));assert.equal(v.json?.data?.server_accepted,undefined,String(claim));}

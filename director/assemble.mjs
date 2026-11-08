@@ -3,14 +3,17 @@
 // for that take. Hard cuts with stream copy (ffmpeg concat demuxer, -c copy): no dissolve, no frame interpolation, no
 // re-encode. The receipt proves "this film was cut from these files by this EDL"; it does NOT prove server acceptance
 // (the ledger is a local record; SPEC TL;DR 3). `--verify` recomputes every hash it names.
-// AC11 (ACCEPT-1e5e347; CORE-ASKS C7): a self-consistent ledger the server never issued cannot be told apart offline, so
-// every receipt and every assemble/verify result says server_acceptance "unverified" and server_accepted false, and the
-// human line says "not verified by nikuniku" (tests/assemble.test.mjs AC11). Nothing here may ever report true until the
-// server signs acceptance and this file checks that signature.
+// AC11 (ACCEPT-ae8c4ef FAIL; Studio ruling 2026-11-08): a self-consistent ledger the server never issued cannot be told
+// apart offline, so assemble needs a valid key and, before writing anything, asks the server (GET /v1/recipe-runs/{run_id},
+// the same call shoot polls) about every adopted take: the run must exist (SERVER_RUN_NOT_FOUND), the server must have
+// passed it (SERVER_NOT_PASSED) and its output sha256 must equal the file (SERVER_SHA_MISMATCH). tests/assemble.test.mjs AC11.
+// `--verify` is offline and only proves cut integrity: it always reports server_acceptance "unverified" and
+// server_accepted false, and the receipt itself (no server signature, CORE-ASKS C7) stays "unverified".
 import {createHash} from 'node:crypto';
 import {readFileSync,existsSync,mkdirSync,writeFileSync,renameSync,unlinkSync} from 'node:fs';
 import {join,dirname,relative,resolve,isAbsolute} from 'node:path';
-import {Refusal} from '../client/nikuniku-api.mjs';
+import {Refusal,ApiError,apiBase,apiKey,validId,call} from '../client/nikuniku-api.mjs';
+import {judge} from './shoot.mjs';
 import {parse,need} from './cli.mjs';
 import {readJson,writeJson,ff,duration} from './breakdown.mjs';
 import {validate} from './jsonschema.mjs';
@@ -27,8 +30,26 @@ function checked(name,value){
 const rel=(from,to)=>relative(dirname(from),to)||'.';
 export const UNVERIFIED={server_acceptance:'unverified',server_accepted:false};
 export const NOTICE='NOT_VERIFIED_BY_NIKUNIKU';
+export const CHECKED={server_acceptance:'checked_at_assemble',server_accepted:true};
+
+// Ask the server about each adopted take; returns the refusal result for the first problems found, or null.
+async function serverCheck(picks,ws,{key,api}){
+ const q=encodeURIComponent,notFound=[],notPassed=[],shaDiffers=[];
+ for(const p of picks){let judged;
+  try{judged=judge((await call(api,'GET',`/v1/recipe-runs/${q(p.take.run_id)}?workspace_id=${q(ws)}`,{key})).data);}
+  catch(e){if(e instanceof ApiError&&e.body.error.code==='NOT_FOUND'){notFound.push(`${p.shot.id}: run ${p.take.run_id}`);continue;}throw e;}
+  if(judged?.verdict!=='passed')notPassed.push(`${p.shot.id}: run ${p.take.run_id} is ${judged?.verdict??'still pending'}`);
+  else if(judged.output_sha256!==p.sha)shaDiffers.push(`${p.shot.id}: the server's sha256 ${judged.output_sha256.slice(0,12)}… is not the file's ${p.sha.slice(0,12)}…`);}
+ const fail=(code,list,why)=>({exit:3,result:{ok:false,error:{code,message:`${why}: ${list.join('; ')}; nothing was written`}}});
+ if(notFound.length)return fail('SERVER_RUN_NOT_FOUND',notFound,'the server has no such run');
+ if(notPassed.length)return fail('SERVER_NOT_PASSED',notPassed,'the server did not pass');
+ if(shaDiffers.length)return fail('SERVER_SHA_MISMATCH',shaDiffers,'the server reports another output');
+ return null;
+}
 
 export async function assemble(o){
+ // Key first (AC11): without one nothing is read from the server and nothing is cut. MCP may pass its own key and base.
+ const key=apiKey(o.apiKey??process.env.NIKUNIKU_API_KEY),api=o.apiBase??apiBase(process.env.NIKUNIKU_API_BASE);
  const planFile=o.positional[0];if(!planFile)throw new Refusal('USAGE','assemble needs a plan path (or --verify <receipt>)');
  const out=resolve(need(o,'out')),takesDir=need(o,'takes');
  const plan=readJson(planFile,'plan'),planSha=fileSha(planFile),ledger=readJson(need(o,'ledger'),'gacha-ledger');
@@ -44,6 +65,7 @@ export async function assemble(o){
   if(!existsSync(p.file)){bad.push(`${p.shot.id}: ${p.file} is missing`);continue;}
   p.sha=fileSha(p.file);if(p.sha!==p.take.output_sha256)bad.push(`${p.shot.id}: file sha256 ${p.sha.slice(0,12)}… is not the server's ${String(p.take.output_sha256).slice(0,12)}…`);}
  if(bad.length)return {exit:3,result:{ok:false,error:{code:'TAKE_FILE_MISMATCH',message:bad.join('; ')+'; nothing was written'}}};
+ const refused=await serverCheck(picks,validId(ledger.workspace_id,'workspace_id'),{key,api});if(refused)return refused;
 
  const dir=dirname(out),edlFile=resolve(o.edl??join(dir,'edl.json')),receiptFile=resolve(o.receipt??join(dir,'qa-receipt.json'));
  let at=0;const entries=[];
@@ -62,7 +84,7 @@ export async function assemble(o){
   edl_file:rel(receiptFile,edlFile),edl_sha256:fileSha(edlFile),takes:picks.map(p=>({shot_id:p.shot.id,job_id:p.take.job_id,sha256:p.sha,verdict:'passed'})),
   created_at:new Date().toISOString().replace(/\.\d{3}Z$/,'Z'),plan_sha256:planSha,server_acceptance:UNVERIFIED.server_acceptance});
  writeJson(receiptFile,receipt);
- return {result:{ok:true,data:{file:out,edl:edlFile,receipt:receiptFile,output_sha256:receipt.output_sha256,total_ms:at,...UNVERIFIED}},notice:NOTICE};
+ return {result:{ok:true,data:{file:out,edl:edlFile,receipt:receiptFile,output_sha256:receipt.output_sha256,total_ms:at,...CHECKED}}};
 }
 
 export function verify(receiptPath,{takes}={}){
