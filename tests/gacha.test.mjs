@@ -131,7 +131,7 @@ test('restart: a take whose run call failed is re-sent with the SAME idempotency
  assert.equal(posts('quotes').length,1);
 });
 test('ledger lock: another process holding <ledger>.lock → exit 1 LEDGER_LOCKED, 0 requests; the lock is released after a run',async()=>{
- const {f,ledger}=planFile();writeFileSync(ledger+'.lock','123');
+ const {f,ledger}=planFile();writeFileSync(ledger+'.lock',String(process.pid)); // a live process holds it
  const r=await cli(['shoot',f,'--ledger',ledger],env());assert.equal(r.code,1);assert.equal(r.err.error.code,'LEDGER_LOCKED');assert.equal(mock.requests.length,0);
  const other=planFile();assert.equal((await cli(['shoot',other.f,'--ledger',other.ledger,'--shot','s1'],env())).code,0);
  assert.equal(existsSync(other.ledger+'.lock'),false);
@@ -155,4 +155,58 @@ test('--takes downloads each adopted take and checks it against the server sha25
  const bytes=readFileSync(join(takes,'s1.mp4'));
  assert.equal(createHash('sha256').update(bytes).digest('hex'),shotOf(readLedger(ledger),'s1').takes[0].output_sha256);
  const dl=mock.requests.find(q=>q.path.startsWith('/files/'));assert.equal(dl.authorization,null,'the signed link is fetched without the API key');
+});
+
+// ── independent verifier findings on b682ae0 (each reproduced first-hand before the fix) ──
+const runsTo=r=>mock.requests.filter(q=>q.method==='POST'&&q.path===`/v1/recipes/${r}/runs`).length;
+test('V1: resending a take whose run call failed is budget-checked too (a lower --max-credits stops it, exit 4)',async()=>{
+ mock.director.failRunOnce=true;const {f,ledger}=planFile();
+ assert.equal((await cli(['shoot',f,'--ledger',ledger,'--shot','s1','--max-credits','100'],env())).code,1);
+ const r=await cli(['shoot',f,'--ledger',ledger,'--shot','s1','--max-credits','0'],env());
+ assert.equal(r.code,4);assert.equal(r.err.error.code,'ABOVE_MAX_CREDITS');assert.equal(posts('runs').length,1,'no resend');
+ assert.equal(shotOf(readLedger(ledger),'s1').status,'budget_stopped');
+});
+test('V2: the server route is recorded unchanged up to 64 code points; a longer one is not silently dropped',async()=>{
+ const emoji='🎬'.repeat(33);mock.director.outcomes={s1:[{verdict:'passed',route:emoji}]};
+ const a=planFile();assert.equal((await cli(['shoot',a.f,'--ledger',a.ledger,'--shot','s1'],env())).code,0);
+ assert.equal(shotOf(readLedger(a.ledger),'s1').takes[0].route,emoji);
+ mock.reset();mock.director.outcomes={s1:[{verdict:'passed',route:'r'.repeat(65)}]};
+ const b=planFile();const r=await cli(['shoot',b.f,'--ledger',b.ledger,'--shot','s1'],env());
+ assert.equal(r.code,1);assert.equal(r.err.error.code,'ACCEPTANCE_UNAVAILABLE');assert.equal(shotOf(readLedger(b.ledger),'s1').adopted,null);
+});
+test('V3: a pass without a valid output sha256 cannot be bound to bytes and is unavailable',async()=>{
+ const {judge}=await import('../director/shoot.mjs');
+ assert.equal(judge({state:'succeeded',acceptance:{verdict:'passed'}}).verdict,'unavailable');
+ assert.equal(judge({state:'succeeded',acceptance:{verdict:'passed'},output_sha256:'A'.repeat(64)}).verdict,'unavailable');
+ assert.equal(judge({state:'succeeded',acceptance:{verdict:'passed'},output_sha256:'a'.repeat(64)}).verdict,'passed');
+});
+test('V4: a ledger take made for another recipe is not resent to a new one (LEDGER_MISMATCH)',async()=>{
+ mock.director.failRunOnce=true;const {f,ledger}=planFile(p=>{for(const s of p.shots)delete s.recipe_id;});
+ assert.equal((await cli(['shoot',f,'--ledger',ledger,'--shot','s1','--recipe','recipe_one'],env())).code,1);
+ const r=await cli(['shoot',f,'--ledger',ledger,'--shot','s1','--recipe','recipe_two'],env());
+ assert.equal(r.code,2);assert.equal(r.err.error.code,'LEDGER_MISMATCH');assert.equal(runsTo('recipe_two'),0);
+});
+test('V5: a lock left by a process that no longer exists is taken over; a live holder still blocks',async()=>{
+ const {f,ledger}=planFile();writeFileSync(ledger+'.lock','2147483646');
+ const r=await cli(['shoot',f,'--ledger',ledger,'--shot','s1'],env());assert.equal(r.code,0,r.stderr);assert.equal(existsSync(ledger+'.lock'),false);
+});
+test('V6: malformed server answers after a request are INVALID_RESPONSE exit 1 (not exit 2), and the ledger stays valid',async()=>{
+ mock.director.badRunId=true;const a=planFile();
+ const r=await cli(['shoot',a.f,'--ledger',a.ledger,'--shot','s1'],env());assert.equal(r.code,1);assert.equal(r.err.error.code,'INVALID_RESPONSE');readLedger(a.ledger);
+ mock.reset();mock.director.nullSnapshot=true;const b=planFile();
+ const n=await cli(['shoot',b.f,'--ledger',b.ledger,'--shot','s1'],env());assert.equal(n.code,1);assert.equal(n.err.error.code,'INVALID_RESPONSE');readLedger(b.ledger);
+});
+test('V7: one error does not hide another; the budget message names the running total',async()=>{
+ mock.director.outcomes={s1:[{verdict:'passed',acceptance:'absent'}]};
+ const {f,ledger}=planFile();const r=await cli(['shoot',f,'--ledger',ledger,'--max-credits','40'],env());
+ assert.equal(r.code,4);assert.match(r.err.error.message,/ACCEPTANCE_UNAVAILABLE[^;]*s1/);assert.match(r.err.error.message,/40 already quoted \+ 40/);
+});
+test('V5: Ctrl-C while waiting for a verdict removes the lock (exit 130)',async()=>{
+ const {spawn}=await import('node:child_process');
+ mock.director.outcomes={s1:[{verdict:'passed',polls:1000}]};const {f,ledger}=planFile();
+ const child=spawn(process.execPath,['cli/nikuniku.mjs','shoot',f,'--ledger',ledger,'--shot','s1'],{env:{...process.env,...env(),NIKUNIKU_POLL_MS:'20'},stdio:'ignore'});
+ for(let i=0;i<200&&!mock.requests.some(q=>q.path.startsWith('/v1/recipe-runs/'));i++)await new Promise(r=>setTimeout(r,20));
+ assert.ok(existsSync(ledger+'.lock'),'lock held while waiting');
+ const code=await new Promise(r=>{child.on('exit',(c,sig)=>r(c??sig));child.kill('SIGINT');});
+ assert.equal(code,130);assert.equal(existsSync(ledger+'.lock'),false);
 });

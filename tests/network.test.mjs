@@ -46,10 +46,18 @@ test('AC1: which output links are allowed',()=>{
  assert.equal(linkAllowed(prod,'http://media.nikuniku.ai/x'),false,'plain http');
  assert.equal(linkAllowed(prod,'https://user:pw@media.nikuniku.ai/x'),false,'credentials in the link');
  assert.equal(linkAllowed(apiBase('https://staging.example.com'),'https://media.nikuniku.ai/x'),false,'the *.nikuniku.ai rule only applies when the API is on nikuniku.ai');
- assert.equal(linkAllowed(local,'http://127.0.0.1:9999/f'),true);assert.equal(linkAllowed(local,'http://localhost:8787/f'),false);
+ assert.equal(linkAllowed(local,'http://127.0.0.1:8787/f'),true);assert.equal(linkAllowed(local,'http://127.0.0.1:9999/f'),false,'another local service');
+ assert.equal(linkAllowed(local,'http://localhost:8787/f'),false);
+ assert.equal(linkAllowed(prod,'https://api.nikuniku.ai:8443/x'),false,'another port on the API host');assert.equal(linkAllowed(prod,'https://media.nikuniku.ai:8443/x'),false);
 });
 test('AC1: inside director/ only net.mjs calls fetch (everything else goes through the shared /v1 client)',()=>{
  const users=readdirSync('director').filter(f=>/\bfetch\(/.test(readFileSync(join('director',f),'utf8')));
  assert.deepEqual(users,['net.mjs']);
 });
 
+test('AC1: a link whose sha256 differs from the run, or bytes that differ from both, are refused and nothing is written',async()=>{
+ for(const flag of ['badLinkSha','tamperFiles']){mock.reset();mock.director[flag]=true;
+  const x=planFile();const r=await cli(['shoot',x.f,'--ledger',x.ledger,'--shot','s1','--takes',x.takes],env());
+  assert.equal(r.code,1,flag);assert.equal(r.err.error.code,'SHA256_MISMATCH',flag);
+  assert.ok(!existsSync(x.takes)||readdirSync(x.takes).length===0,flag);}
+});

@@ -1,6 +1,6 @@
 // Director kit network boundary (docs/director/SPEC.md §1, AC1). API calls go through client/nikuniku-api.mjs#call, which
 // only ever talks to NIKUNIKU_API_BASE and never follows redirects. The one other fetch is a take's signed output link:
-// it must be https on the API's own host, or on *.nikuniku.ai when the API itself is on nikuniku.ai (a loopback API may
+// it must be https on the API's own host and port, or on *.nikuniku.ai (default port) when the API itself is on nikuniku.ai (a loopback API may
 // hand out a loopback http link on its own host). Anything else is HOST_REFUSED and nothing is written. The link is
 // fetched WITHOUT the API key, with redirects refused, and its bytes must match both the link's sha256 and the sha256 the
 // recipe run reported for the take.
@@ -13,8 +13,10 @@ const onNikuniku=host=>host==='nikuniku.ai'||host.endsWith('.nikuniku.ai');
 export function linkAllowed(api,link){
  let url,base;try{url=new URL(link);base=new URL(api.origin);}catch{return false;}
  if(url.username||url.password)return false;
- if(url.protocol==='https:'&&(url.hostname===base.hostname||onNikuniku(base.hostname)&&onNikuniku(url.hostname)))return true;
- return api.loopback&&url.protocol==='http:'&&url.hostname===base.hostname;
+ // Same host means same host AND port (independent verifier on b682ae0: another port is another service).
+ const sameHost=url.hostname===base.hostname&&url.port===base.port;
+ if(url.protocol==='https:'&&(sameHost||onNikuniku(base.hostname)&&onNikuniku(url.hostname)&&url.port===''))return true;
+ return api.loopback&&url.protocol==='http:'&&sameHost;
 }
 const sha=b=>createHash('sha256').update(b).digest('hex');
 export async function downloadTake(api,key,ws,job,expected,out){

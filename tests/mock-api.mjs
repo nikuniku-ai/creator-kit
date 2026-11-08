@@ -25,6 +25,8 @@ const strings=inputs=>inputs&&typeof inputs==='object'&&!Array.isArray(inputs)&&
 //          | {state:'failed'|'cancelled'} | {acceptance:'absent'} | {verdict:'weird'} | {polls:n, ...} (n running polls first)
 //   failRunOnce: the next runs call answers 503 (a crash between quote and run)
 //   outputHost: base URL put in output links; redirectFiles: /files/* answers 302 to this URL
+//   badRunId: runs answer an invalid job_id; nullSnapshot: recipe-runs answer data:null;
+//   badLinkSha: output links carry a wrong sha256; tamperFiles: /files/* flips the first byte
 export function start(options={}){
  const director={outcomes:{},maxUnits:40,files:{},outputHost:null,...options.director};
  const requests=[],runs=new Map(),byKey=new Map(),quotes=new Map();let seq=0;
@@ -43,11 +45,12 @@ export function start(options={}){
    if(body.max_credits<director.maxUnits)return err(402,'ABOVE_MAX_CREDITS','max_credits is below the quote');
    const shot=JSON.parse(body.inputs.shot_json),take=Number(body.inputs.take),job=`job_${shot.id}_${take}`;
    const outcome=(director.outcomes[shot.id]??[])[take-1]??{verdict:'passed'};
-   const run={public:{run_id:job,job_id:job,state:'queued',recipe_id:m[1],recipe_version:'1'},shot:shot.id,take,outcome,polls:0};
+   const run={public:{run_id:job,job_id:director.badRunId?'bad id!':job,state:'queued',recipe_id:m[1],recipe_version:'1'},shot:shot.id,take,outcome,polls:0};
    runs.set(job,run);byKey.set(body.idempotency_key,job);return ok(run.public);
   }
   if(method==='GET'&&(m=path.match(/^\/v1\/recipe-runs\/([^/?]+)$/))){
    const run=runs.get(m[1]);if(!run)return err(404,'NOT_FOUND','no such run');
+   if(director.nullSnapshot)return ok(null);
    const o=run.outcome;run.polls++;
    if(o.polls&&run.polls<=o.polls)return ok({...run.public,state:'running'});
    if(o.state)return ok({...run.public,state:o.state,acceptance:null,route:null});
@@ -59,7 +62,7 @@ export function start(options={}){
   if(method==='GET'&&(m=path.match(/^\/v1\/jobs\/([^/?]+)\/output$/))){
    const run=runs.get(m[1]);if(!run||run.outcome.verdict!=='passed')return err(404,'NOT_FOUND','no output');
    const bytes=output(run);
-   return ok({output_id:'out_'+m[1],url:(director.outputHost??base)+'/files/'+m[1],sha256:createHash('sha256').update(bytes).digest('hex')});
+   return ok({output_id:'out_'+m[1],url:(director.outputHost??base)+'/files/'+m[1],sha256:director.badLinkSha?'0'.repeat(64):createHash('sha256').update(bytes).digest('hex')});
   }
   return null;
  };
@@ -72,7 +75,7 @@ export function start(options={}){
     const base=`http://127.0.0.1:${server.address().port}`;
     if(req.method==='GET'&&path.startsWith('/files/')&&director.redirectFiles){res.writeHead(302,{location:director.redirectFiles});res.end();return;}
     if(req.method==='GET'&&path.startsWith('/files/')){const run=runs.get(path.slice(7));
-     if(!run){res.writeHead(404);res.end();return;}res.writeHead(200,{'content-type':'video/mp4'});res.end(output(run));return;}
+     if(!run){res.writeHead(404);res.end();return;}res.writeHead(200,{'content-type':'video/mp4'});const b=Buffer.from(output(run));if(director.tamperFiles)b[0]^=1;res.end(b);return;}
     const route=routes[`${req.method} ${path}`];
     const authed=req.headers.authorization===`Bearer ${KEY}`;
     const open=path.startsWith('/v1/pricing')||path.startsWith('/v1/capabilities');
@@ -81,7 +84,7 @@ export function start(options={}){
    });
   });
   server.listen(0,'127.0.0.1',()=>resolve({server,base:`http://127.0.0.1:${server.address().port}`,requests,director,runs,
-   reset(){requests.length=0;runs.clear();byKey.clear();quotes.clear();Object.assign(director,{outcomes:{},maxUnits:40,files:{},outputHost:null,failRunOnce:false,redirectFiles:null});}}));
+   reset(){requests.length=0;runs.clear();byKey.clear();quotes.clear();Object.assign(director,{outcomes:{},maxUnits:40,files:{},outputHost:null,failRunOnce:false,redirectFiles:null,badRunId:false,nullSnapshot:false,badLinkSha:false,tamperFiles:false});}}));
  });
 }
 if(import.meta.url===`file://${process.argv[1]}`){const {base}=await start();console.log(base);}
