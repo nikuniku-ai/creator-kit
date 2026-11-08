@@ -1,0 +1,4 @@
+{"schema_version":1,"plan_sha256":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","project_id":"demo-ab","credits":{"max":300,"quoted_total":120},"shots":[{"shot_id":"s1","status":"adopted","adopted":{"take":3,"job_id":"job_3","run_id":"job_3"},
+ "takes":[{"take":1,"run_id":"job_1","job_id":"job_1","verdict":"failed","failure_class":"identity_match","route":"general","charged_units":null},
+          {"take":2,"run_id":"job_2","job_id":"job_2","verdict":"failed","failure_class":"framing","route":"general","charged_units":null},
+          {"take":3,"run_id":"job_3","job_id":"job_3","verdict":"passed","failure_class":null,"route":"general","charged_units":40}]}]}

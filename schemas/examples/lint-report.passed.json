@@ -1,0 +1,1 @@
+{"schema_version":1,"plan_sha256":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","passed":true,"similarity":{"max":0.08,"threshold":0.35,"n":3},"findings":[{"code":"L006_ACCEPT_MISSING","severity":"warning","path":"$.shots[1].accept","shot_id":"s2","scene_id":null,"message":"shot has no accept block yet; shoot will refuse it","evidence":null}]}

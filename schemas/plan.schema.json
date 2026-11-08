@@ -1,0 +1,791 @@
+{
+ "$schema": "https://json-schema.org/draft/2020-12/schema",
+ "$id": "https://github.com/nikuniku-ai/creator-kit/schemas/plan.schema.json",
+ "title": "S3–S7 plan.json — one versioned production plan (bible, screenplay, gaps, layout, shot list)",
+ "type": "object",
+ "additionalProperties": false,
+ "required": [
+  "schema_version",
+  "project_id",
+  "revision",
+  "source_revision",
+  "lang",
+  "sources",
+  "bible",
+  "characters",
+  "props",
+  "scenes",
+  "gaps",
+  "audio_refs",
+  "shots",
+  "dependencies",
+  "provider_constraints",
+  "budget",
+  "retention"
+ ],
+ "properties": {
+  "schema_version": {
+   "const": 1
+  },
+  "project_id": {
+   "$ref": "#/$defs/id"
+  },
+  "revision": {
+   "type": "integer",
+   "minimum": 1,
+   "maximum": 9007199254740991
+  },
+  "source_revision": {
+   "$ref": "#/$defs/sha256"
+  },
+  "lang": {
+   "$ref": "#/$defs/lang"
+  },
+  "sources": {
+   "type": "array",
+   "minItems": 0,
+   "maxItems": 2,
+   "items": {
+    "type": "object",
+    "additionalProperties": false,
+    "required": [
+     "source_id",
+     "role",
+     "breakdown_sha256",
+     "usable_for"
+    ],
+    "properties": {
+     "source_id": {
+      "$ref": "#/$defs/id"
+     },
+     "role": {
+      "enum": [
+       "A",
+       "B"
+      ]
+     },
+     "breakdown_sha256": {
+      "$ref": "#/$defs/sha256"
+     },
+     "usable_for": {
+      "enum": [
+       "analysis_only",
+       "generation"
+      ]
+     }
+    }
+   }
+  },
+  "bible": {
+   "type": "object",
+   "additionalProperties": false,
+   "required": [
+    "logline",
+    "constitution",
+    "hooks",
+    "creator_brief"
+   ],
+   "properties": {
+    "logline": {
+     "type": "string",
+     "minLength": 1,
+     "maxLength": 1000
+    },
+    "constitution": {
+     "type": "array",
+     "minItems": 0,
+     "maxItems": 50,
+     "items": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 500
+     }
+    },
+    "hooks": {
+     "type": "array",
+     "minItems": 0,
+     "maxItems": 50,
+     "items": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+       "at_s",
+       "text"
+      ],
+      "properties": {
+       "at_s": {
+        "type": "number",
+        "minimum": 0,
+        "maximum": 86400
+       },
+       "text": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 500
+       }
+      }
+     }
+    },
+    "creator_brief": {
+     "type": "string",
+     "minLength": 1,
+     "maxLength": 10000
+    }
+   }
+  },
+  "characters": {
+   "type": "array",
+   "minItems": 0,
+   "maxItems": 64,
+   "items": {
+    "type": "object",
+    "additionalProperties": false,
+    "required": [
+     "id",
+     "names",
+     "description",
+     "first_scene"
+    ],
+    "properties": {
+     "id": {
+      "$ref": "#/$defs/id"
+     },
+     "names": {
+      "type": "object",
+      "additionalProperties": {
+       "type": "string",
+       "minLength": 1,
+       "maxLength": 100
+      }
+     },
+     "description": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 2000
+     },
+     "first_scene": {
+      "$ref": "#/$defs/id"
+     },
+     "reference_asset_id": {
+      "oneOf": [
+       {
+        "$ref": "#/$defs/id"
+       },
+       {
+        "type": "null"
+       }
+      ]
+     }
+    }
+   }
+  },
+  "props": {
+   "type": "array",
+   "minItems": 0,
+   "maxItems": 256,
+   "items": {
+    "type": "object",
+    "additionalProperties": false,
+    "required": [
+     "id",
+     "name"
+    ],
+    "properties": {
+     "id": {
+      "$ref": "#/$defs/id"
+     },
+     "name": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 200
+     },
+     "description": {
+      "type": [
+       "string",
+       "null"
+      ],
+      "maxLength": 2000
+     }
+    }
+   }
+  },
+  "scenes": {
+   "type": "array",
+   "minItems": 1,
+   "maxItems": 256,
+   "items": {
+    "type": "object",
+    "additionalProperties": false,
+    "required": [
+     "id",
+     "title",
+     "story_time_min",
+     "flashback",
+     "location",
+     "lighting"
+    ],
+    "properties": {
+     "id": {
+      "$ref": "#/$defs/id"
+     },
+     "title": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 200
+     },
+     "story_time_min": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 5256000
+     },
+     "flashback": {
+      "type": "boolean"
+     },
+     "location": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 500
+     },
+     "lighting": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 500
+     },
+     "layout": {
+      "oneOf": [
+       {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+         "boxes"
+        ],
+        "properties": {
+         "boxes": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 64,
+          "items": {
+           "type": "object",
+           "additionalProperties": false,
+           "required": [
+            "id",
+            "center",
+            "size"
+           ],
+           "properties": {
+            "id": {
+             "$ref": "#/$defs/id"
+            },
+            "center": {
+             "type": "array",
+             "minItems": 3,
+             "maxItems": 3,
+             "items": {
+              "type": "number",
+              "minimum": -10000,
+              "maximum": 10000
+             }
+            },
+            "size": {
+             "type": "array",
+             "minItems": 3,
+             "maxItems": 3,
+             "items": {
+              "type": "number",
+              "minimum": 0.01,
+              "maximum": 10000
+             }
+            }
+           }
+          }
+         }
+        }
+       },
+       {
+        "type": "null"
+       }
+      ]
+     }
+    }
+   }
+  },
+  "gaps": {
+   "type": "array",
+   "minItems": 0,
+   "maxItems": 256,
+   "items": {
+    "type": "object",
+    "additionalProperties": false,
+    "required": [
+     "id",
+     "kind",
+     "description",
+     "filled"
+    ],
+    "properties": {
+     "id": {
+      "$ref": "#/$defs/id"
+     },
+     "kind": {
+      "enum": [
+       "scene",
+       "location",
+       "prop",
+       "character",
+       "audio"
+      ]
+     },
+     "description": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 2000
+     },
+     "filled": {
+      "type": "boolean"
+     },
+     "asset_ref": {
+      "oneOf": [
+       {
+        "$ref": "#/$defs/id"
+       },
+       {
+        "type": "null"
+       }
+      ]
+     },
+     "rights_ref": {
+      "type": [
+       "string",
+       "null"
+      ],
+      "maxLength": 512
+     }
+    }
+   }
+  },
+  "audio_refs": {
+   "type": "array",
+   "minItems": 0,
+   "maxItems": 16,
+   "items": {
+    "type": "object",
+    "additionalProperties": false,
+    "required": [
+     "id",
+     "rights_ref"
+    ],
+    "properties": {
+     "id": {
+      "$ref": "#/$defs/id"
+     },
+     "audio_id": {
+      "oneOf": [
+       {
+        "$ref": "#/$defs/id"
+       },
+       {
+        "type": "null"
+       }
+      ]
+     },
+     "path": {
+      "type": [
+       "string",
+       "null"
+      ],
+      "maxLength": 4096
+     },
+     "rights_ref": {
+      "$ref": "#/$defs/id"
+     }
+    }
+   }
+  },
+  "shots": {
+   "type": "array",
+   "minItems": 1,
+   "maxItems": 500,
+   "items": {
+    "type": "object",
+    "additionalProperties": false,
+    "required": [
+     "id",
+     "scene_id",
+     "order",
+     "duration_ms",
+     "framing",
+     "camera_move",
+     "characters",
+     "props_enter",
+     "props_used",
+     "action",
+     "dialogue",
+     "rating",
+     "accept"
+    ],
+    "properties": {
+     "id": {
+      "$ref": "#/$defs/id"
+     },
+     "scene_id": {
+      "$ref": "#/$defs/id"
+     },
+     "order": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 100000
+     },
+     "duration_ms": {
+      "type": "integer",
+      "minimum": 500,
+      "maximum": 60000
+     },
+     "framing": {
+      "enum": [
+       "extreme_wide",
+       "wide",
+       "medium",
+       "medium_close",
+       "close",
+       "extreme_close",
+       "unknown"
+      ]
+     },
+     "camera_move": {
+      "enum": [
+       "static",
+       "pan",
+       "tilt",
+       "dolly",
+       "truck",
+       "orbit",
+       "handheld",
+       "zoom",
+       "unknown"
+      ]
+     },
+     "camera": {
+      "oneOf": [
+       {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+         "position",
+         "look_at",
+         "fov_deg"
+        ],
+        "properties": {
+         "position": {
+          "type": "array",
+          "minItems": 3,
+          "maxItems": 3,
+          "items": {
+           "type": "number",
+           "minimum": -10000,
+           "maximum": 10000
+          }
+         },
+         "look_at": {
+          "type": "array",
+          "minItems": 3,
+          "maxItems": 3,
+          "items": {
+           "type": "number",
+           "minimum": -10000,
+           "maximum": 10000
+          }
+         },
+         "fov_deg": {
+          "type": "number",
+          "minimum": 5,
+          "maximum": 150
+         }
+        }
+       },
+       {
+        "type": "null"
+       }
+      ]
+     },
+     "characters": {
+      "type": "array",
+      "minItems": 0,
+      "maxItems": 16,
+      "items": {
+       "$ref": "#/$defs/id"
+      }
+     },
+     "props_enter": {
+      "type": "array",
+      "minItems": 0,
+      "maxItems": 32,
+      "items": {
+       "$ref": "#/$defs/id"
+      }
+     },
+     "props_used": {
+      "type": "array",
+      "minItems": 0,
+      "maxItems": 32,
+      "items": {
+       "$ref": "#/$defs/id"
+      }
+     },
+     "action": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 2000
+     },
+     "dialogue": {
+      "type": "array",
+      "minItems": 0,
+      "maxItems": 32,
+      "items": {
+       "type": "object",
+       "additionalProperties": false,
+       "required": [
+        "speaker",
+        "text",
+        "lang"
+       ],
+       "properties": {
+        "speaker": {
+         "oneOf": [
+          {
+           "$ref": "#/$defs/id"
+          },
+          {
+           "type": "null"
+          }
+         ]
+        },
+        "text": {
+         "type": "string",
+         "minLength": 1,
+         "maxLength": 1000
+        },
+        "lang": {
+         "$ref": "#/$defs/lang"
+        },
+        "start_s": {
+         "type": [
+          "number",
+          "null"
+         ],
+         "minimum": 0
+        }
+       }
+      }
+     },
+     "rating": {
+      "enum": [
+       "general",
+       "mature",
+       "explicit"
+      ]
+     },
+     "accept": {
+      "oneOf": [
+       {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+         "checks",
+         "max_takes"
+        ],
+        "properties": {
+         "checks": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 16,
+          "items": {
+           "type": "object",
+           "additionalProperties": false,
+           "required": [
+            "id",
+            "kind"
+           ],
+           "properties": {
+            "id": {
+             "$ref": "#/$defs/id"
+            },
+            "kind": {
+             "enum": [
+              "identity_match",
+              "outfit_match",
+              "framing",
+              "camera_move",
+              "action_completed",
+              "dialogue_visible",
+              "lip_sync",
+              "continuity_tail",
+              "scene_match",
+              "prop_present",
+              "no_text_artifacts",
+              "no_extra_limbs",
+              "duration"
+             ]
+            },
+            "threshold": {
+             "type": [
+              "number",
+              "null"
+             ],
+             "minimum": 0,
+             "maximum": 1
+            },
+            "note": {
+             "type": [
+              "string",
+              "null"
+             ],
+             "maxLength": 500
+            }
+           }
+          }
+         },
+         "max_takes": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 10
+         }
+        }
+       },
+       {
+        "type": "null"
+       }
+      ]
+     },
+     "continue_from": {
+      "oneOf": [
+       {
+        "$ref": "#/$defs/id"
+       },
+       {
+        "type": "null"
+       }
+      ]
+     },
+     "recipe_id": {
+      "type": "string",
+      "pattern": "^[a-z][a-z0-9_]{1,63}$"
+     },
+     "source_shot": {
+      "type": [
+       "string",
+       "null"
+      ],
+      "pattern": "^[AB]:[0-9]+$"
+     }
+    }
+   }
+  },
+  "dependencies": {
+   "type": "array",
+   "minItems": 0,
+   "maxItems": 2000,
+   "items": {
+    "type": "object",
+    "additionalProperties": false,
+    "required": [
+     "shot_id",
+     "depends_on",
+     "kind"
+    ],
+    "properties": {
+     "shot_id": {
+      "$ref": "#/$defs/id"
+     },
+     "depends_on": {
+      "$ref": "#/$defs/id"
+     },
+     "kind": {
+      "enum": [
+       "tail_frame",
+       "character_ref",
+       "scene_ref",
+       "audio_ref"
+      ]
+     }
+    }
+   }
+  },
+  "provider_constraints": {
+   "type": "object",
+   "additionalProperties": false,
+   "required": [
+    "via"
+   ],
+   "properties": {
+    "via": {
+     "const": "nikuniku_v1"
+    }
+   }
+  },
+  "budget": {
+   "type": "object",
+   "additionalProperties": false,
+   "required": [
+    "max_credits",
+    "max_same_failure"
+   ],
+   "properties": {
+    "max_credits": {
+     "type": "integer",
+     "minimum": 0,
+     "maximum": 10000000
+    },
+    "max_same_failure": {
+     "type": "integer",
+     "minimum": 1,
+     "maximum": 3
+    }
+   }
+  },
+  "retention": {
+   "type": "object",
+   "additionalProperties": false,
+   "required": [
+    "keep_takes_days"
+   ],
+   "properties": {
+    "keep_takes_days": {
+     "type": [
+      "integer",
+      "null"
+     ],
+     "minimum": 1,
+     "maximum": 3650
+    }
+   }
+  }
+ },
+ "$defs": {
+  "id": {
+   "type": "string",
+   "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,127}$"
+  },
+  "sha256": {
+   "type": "string",
+   "pattern": "^[a-f0-9]{64}$"
+  },
+  "lang": {
+   "enum": [
+    "en",
+    "zh-Hant",
+    "zh-Hans",
+    "ja",
+    "ko",
+    "vi",
+    "id",
+    "th",
+    "es",
+    "pt-BR",
+    "fr",
+    "de",
+    "ar",
+    "hi"
+   ]
+  }
+ }
+}

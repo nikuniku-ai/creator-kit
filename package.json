@@ -6,6 +6,6 @@
   "description": "CLI, MCP server, Python client and Claude skill for the nikuniku.ai /v1 video API",
   "bin": { "nikuniku": "cli/nikuniku.mjs", "nikuniku-mcp": "mcp/nikuniku-mcp.mjs" },
   "engines": { "node": ">=22" },
-  "scripts": { "test": "node --test tests/cli.test.mjs && python3 -m unittest discover -s tests -p 'test_*.py'" },
+  "scripts": { "test": "node scripts/validate-schemas.mjs && node --test tests/*.test.mjs && python3 -m unittest discover -s tests -p 'test_*.py'" },
   "dependencies": { "@modelcontextprotocol/server": "2.4.0" }
 }

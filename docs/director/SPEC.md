@@ -1,0 +1,296 @@
+---
+doc: creator-kit/director/2026-11-08/spec
+title: nikuniku director kit — 爆款／短劇復刻導演工作台 規格（S1–S10、CLI、MCP、錯誤碼、十四語、AC 對應）
+created: 2026-11-08T10:05:00+09:00
+updated: 2026-11-08T10:05:00+09:00
+author: claude-opus-5-5（FG 開發線，kkdeMac-mini / FG）
+follows: fg-lane-docs/viral-remake/REQUIREMENTS.md（Studio 分支 claude/fg-recipe-test-lane @ 2bf8fdeb 副本）
+followed_by: docs/director/REVIEW-codex-1.md
+trigger: PLAN P1.1
+language: zh-Hant primary, code/keywords in English
+schema_version: 1
+---
+
+# 導演工作台規格（director kit）
+
+**TL;DR**
+1. 公開客戶端只做「準備」：拆片（本機 ffmpeg）、改編計畫骨架、邏輯 lint、白膜 SVG、EDL 拼接、QaReceipt。**產出媒體與驗收判定一律經 nikuniku `/v1`**；沒有 API key 只能準備，不能出片。
+2. 一個 project 一份 `plan.json`（欄位沿用 `11-agent-engineering-and-integrations.md` §6），bible／screenplay／gaps／layout／shot list 都是它的分段，不另立平行格式。
+3. 每鏡在生成前就寫好 `accept`；`shoot` 沒有 `accept` 的鏡**不送出**；採用與否只看伺服端回的 `acceptance.verdict`，客戶端**永不**採用未通過的 take。
+4. 伺服端驗收欄位（`acceptance`、`route`）是**對核心的提案**（CORE-ASKS C2/C4），目前只在 mock `/v1` 存在；真 API 沒有這兩欄時，`shoot` 一律停在 `ACCEPTANCE_UNAVAILABLE`（不採用、不猜）。
+5. 驗收：`npm test`（AC1–AC9、AC11–AC13）＋ `node scripts/validate-schemas.mjs`；AC6、AC10 需要核心 C1–C4 上線後在 staging 重跑。
+
+## 0. 狀態表
+
+| ID | severity | status | owner | blocker_for | summary |
+|---|---|---|---|---|---|
+| [DK-S1](#s1-找爆款) | p1 | spec | claude | — | source.json＋授權狀態 |
+| [DK-S2](#s2-看片拆解) | p1 | spec | claude | AC2 | ffmpeg 切鏡＋關鍵幀＋SRT 匯入 |
+| [DK-S3](#s3-改編計畫) | p1 | spec | claude | AC3 | A(+B) 合併成 plan 骨架 |
+| [DK-S4](#s4-邏輯自檢) | p1 | spec | claude | AC3 AC4 | lint L001–L008 |
+| [DK-S6](#s6-白膜) | p2 | spec | claude | — | SVG 投影 |
+| [DK-S7](#s7-分鏡與每鏡驗收規格) | blocker | spec | claude | AC5 | accept 必填才送 |
+| [DK-S8](#s8-分流) | blocker | needs_core | studio | AC6 | 伺服端判級（C2） |
+| [DK-S9](#s9-生成與抽卡) | blocker | spec+needs_core | claude/studio | AC7 | 抽卡規則（判定需 C4） |
+| [DK-S10](#s10-拼接) | p1 | spec | claude | AC8 | EDL＋QaReceipt |
+
+```bash
+grep -hE "^\| \[DK-" docs/director/SPEC.md | grep -E "spec|needs_core"
+```
+
+## 1. 邊界：開放客戶端、封閉引擎
+
+| 在 creator-kit（公開） | 只在 nikuniku 伺服端 |
+|---|---|
+| `director/*.mjs`、`schemas/*.schema.json`、CLI 子指令、MCP 工具、locale 檔 | 影片模型、配方參數、**每鏡驗收判定**、分級與路由、起草、帳本與計費 |
+
+- 客戶端唯一的對外主機是 `NIKUNIKU_API_BASE`（預設 `https://api.nikuniku.ai`）；成片下載的簽名連結只接受同主機或 `*.nikuniku.ai`（https）。其他主機一律 `HOST_REFUSED`，什麼都不寫（AC1）。
+- 不送任何 provider 參數；`plan.provider_constraints.via` 只能是 `nikuniku_v1`（schema `const`）。
+- 參考片：只做結構復刻（節奏、鏡頭語法、鉤子位置），不重用原片畫面與台詞。`source.rights.status ∈ {unlicensed_reference, unknown}` 的來源 `usable_for` 必為 `analysis_only`；lint L004 擋台詞抄襲。**著作權判斷需律師覆核／Yves 決定（REQUIREMENTS D4）**，本工具不宣稱合規。
+- 成人內容：一般套件不含成人主機或成人工具（AC13）。`rating:"explicit"` 的鏡，客戶端只送鏡頭代號與結構欄位，露骨描述由伺服端起草（REQUIREMENTS §1.4）；客戶端宣告的 `rating` 只是建議，伺服端判定為準（C2）。
+
+### 1.1 檔案配置
+
+```
+director/          實作（node 標準庫；唯一外部依賴仍是既有 @modelcontextprotocol/server）
+  jsonschema.mjs   schema 子集驗證器
+  breakdown.mjs    S2   plan.mjs S3   lint.mjs S4   whitebox.mjs S6
+  shoot.mjs        S7–S9（含純函式 gacha.mjs）   assemble.mjs S10   mv.mjs  MV 打包
+  net.mjs          主機白名單   i18n.mjs  訊息   cli.mjs  子指令進入點   mcp-tools.mjs  MCP 工具
+schemas/           *.schema.json、examples/、examples/invalid/
+scripts/validate-schemas.mjs
+locales/director/<lang>.json   十四語
+tests/*.test.mjs   tests/mock-api.mjs（擴充）
+```
+
+`cli/nikuniku.mjs` 與 `mcp/nikuniku-mcp.mjs` 是從核心 `integrations/` 匯出的檔案（`SOURCE.md`）。本工作只在兩檔各加**最小掛載點**（把 director 子指令／工具轉給 `director/`），其餘邏輯全在 `director/`，以便核心同步（CORE-ASKS C6）時衝突最小。
+
+## 2. 資料契約（每階段一份 JSON；`schema_version:1`；上游以 sha256 綁定）
+
+| 檔案 | schema | 階段 | 上游綁定 |
+|---|---|---|---|
+| `source.json` | `schemas/source.schema.json` | S1 | 本機檔 sha256（有檔時） |
+| `breakdown.json` | `schemas/breakdown.schema.json` | S2 | `source_sha256` |
+| `plan.json` | `schemas/plan.schema.json` | S3/S5/S6/S7 | `source_revision`＝各 breakdown sha256 依 role 排序後的 sha256；`sources[].breakdown_sha256` |
+| `lint-report.json` | `schemas/lint-report.schema.json` | S4 | `plan_sha256` |
+| `gacha-ledger.json` | `schemas/gacha-ledger.schema.json` | S9 | `plan_sha256` |
+| `edl.json` | `schemas/edl.schema.json` | S10 | `plan_sha256`、每段 `sha256` |
+| `qa-receipt.json` | `schemas/qa-receipt.schema.json` | S10 | `output_sha256`、`edl_sha256` |
+
+`plan_sha256` 一律是檔案原始 bytes 的 sha256（不做正規化，改一個 byte 就換一個值）。
+
+**plan 最小欄位**（§6 沿用）：`schema_version, project_id, revision, source_revision, characters, scenes, audio_refs, shots, dependencies, provider_constraints, budget, retention`；本規格加 `lang, sources, bible, props, gaps`。
+
+**語言**：`plan.lang` 是劇本語言；每句台詞自帶 `lang`；角色名以 `names:{<lang>:<name>}` 存多語。其餘自由文字欄位跟 `plan.lang`。`lang` 只能是 `apps/site/locale-registry.json` 的十四語。
+
+驗法：`node scripts/validate-schemas.mjs` → 全部 `examples/` 通過、全部 `examples/invalid/` 被拒、每個 schema 至少一個正例；exit 0。
+
+## 3. 各階段
+
+### S1 找爆款
+- 輸入：網址或本機檔（創作者自備，下載與授權是創作者的責任；本工具**不下載**任何平台影片）。IDE agent 可代搜，結果仍要創作者確認。
+- 指令：`nikuniku source (--url <https> | --file <video>) --rights <status> [--rights-ref <id>] --lang <lang> --out source.json`
+- 規則：`--rights` 為 `unlicensed_reference|unknown` → `usable_for:"analysis_only"`；其餘 → `generation`。
+
+### S2 看片拆解
+- 指令：`nikuniku breakdown <video> --out breakdown.json [--threshold 0.3] [--min-shot 0.4] [--frames <dir>] [--srt <file>] [--source source.json]`
+- 實作：`ffmpeg -vf "select='gt(scene,T)',showinfo"` 取切點 → 去掉距前一切點 < `min-shot` 的切點 → 每鏡 `[start_s,end_s)`；`--frames` 時每鏡中點抽一張 PNG（給 IDE agent 看圖描述）；`--srt` 時依時間把字幕句放進對應鏡的 `dialogue`（`transcript_source:"srt"`）。
+- 景別、運鏡、人物、光線、道具、鉤子、描述由 IDE agent 視覺能力填寫（`filled_by:"agent"`）；偵測器填 `unknown`／`null`，不假裝看懂畫面。
+- 驗收（AC2）：合成 fixture 的鏡數與人工標註差 ≤1、每個切點誤差 ≤0.5 s。
+- 錯誤：`FFMPEG_UNAVAILABLE`（exit 2）、`FFMPEG_FAILED`（exit 1）、`USAGE`。
+
+### S3 改編計畫
+- 指令：`nikuniku plan --a <breakdown.json> [--b <breakdown.json>] --brief <brief.txt> --lang <lang> --project <id> --out plan.json`
+- 產出 plan **骨架**：A 的鏡（與 B 的鏡，A＋B 時依 `--merge a_then_b|interleave`，預設 `a_then_b`）轉成 `shots[]`，`source_shot:"A:<i>"`；每鏡 `action` 預填「待改編：<原鏡描述或時長>」、`accept:null`、`rating:"general"`；`sources[]` 記兩份 breakdown 的 sha256 與 `usable_for`。
+- 真正的改編文字（新人物、新台詞、補景）由創作者的 IDE agent 改寫 plan，**不經我們的伺服器、不收費**；需要我們起草（例如 explicit 鏡）時走既有 `nikuniku compose`（`/v1/prompts/draft`，收費，先報價）。
+- A＋B 合併的劇情一致性由 S4 lint 把關。
+
+### S4 邏輯自檢
+- 指令：`nikuniku lint <plan.json> [--source <breakdown.json> ...] [--threshold 0.35] [--out lint-report.json]`；有 `error` 時 exit 3，只有 warning 時 exit 0。
+- 規則（code 穩定，機器據此處理，不解析翻譯句）：
+
+| code | severity | 觸發 |
+|---|---|---|
+| `L001_CHARACTER_UNDEFINED` | error | 鏡頭或台詞用到 `characters[]` 沒有的角色 id |
+| `L002_CHARACTER_BEFORE_INTRO` | error | 角色在其 `first_scene` 之前的場景出現（「人物憑空出現」） |
+| `L003_PROP_NOT_ENTERED` | error | `props_used` 的道具在此鏡（含）之前沒有任何 `props_enter`（「道具未入場就使用」） |
+| `L004_SIMILARITY_TOO_HIGH` | error | 改編台詞對原片台詞的 3-gram 包含率 > 門檻（預設 0.35）；CJK／假名／諺文用字元 3-gram，其餘用詞 3-gram |
+| `L005_TIMELINE_REGRESSION` | error | 依鏡頭順序，場景 `story_time_min` 比前一場早且 `flashback:false`（「時間線倒退」） |
+| `L006_ACCEPT_MISSING` | warning | 鏡頭 `accept` 為 null（S9 會拒送） |
+| `L007_GAP_UNFILLED` | warning | `gaps[].filled:false` |
+| `L008_NAME_INCONSISTENT` | warning | 台詞語言為 X，但台詞含某角色在其他語言的名字、且不含該角色 X 語言的名字（跨語言改編的人名一致） |
+| `L009_REFERENCE_UNDEFINED` | error | 鏡頭指向不存在的 scene／prop／dependency 目標 |
+
+- 驗收（AC3）：A＋B 合併 fixture 通過 schema；三種植入錯誤（L002、L003、L005）各報**恰好一次**。（AC4）：抄原片台詞的 fixture 報 L004。
+
+### S5 補景與素材
+- `plan.gaps[]`：IDE agent 列出原片沒有、改編需要的景／道具／人物／音樂；補上描述或素材（附 `rights_ref`）後 `filled:true`。素材上傳走既有 `nikuniku upload`（`/v1/assets`）。不另做素材搜尋服務（REQUIREMENTS §2 列為真缺口，留待後續）。
+
+### S6 白膜
+- 指令：`nikuniku whitebox <plan.json> --shot <id> --out <shot.svg>`（或 `--dir <dir>` 輸出全部有 `layout` 與 `camera` 的鏡）。
+- 實作：場景 `layout.boxes`（軸對齊長方體）＋鏡頭 `camera{position, look_at, fov_deg}` → 針孔透視投影、背面剔除、由遠到近畫（painter）。SVG 根元素帶 `data-faces`（畫出的面數）與 `data-forward`（相機前向單位向量，三位小數），每個面 `<polygon data-box data-face>`。
+- 不搬 Blender 依賴；需要 HED／ControlNet 的線稿由伺服端配方處理。
+
+### S7 分鏡與每鏡驗收規格
+- `shots[].accept = {checks:[{id, kind, threshold?, note?}], max_takes}`；`kind` 列舉見 schema（identity_match、framing、action_completed、dialogue_visible、continuity_tail…）。客戶端**只宣告**，判定在伺服端（§1）。
+- 規則（AC5）：`shoot` 在任何網路請求之前檢查所有要拍的鏡；任一鏡 `accept` 為 null／缺 → exit 2 `ACCEPT_REQUIRED`，列出鏡 id，**送出 0 個請求**。
+
+### S8 分流
+- 客戶端在 `inputs.shot_json` 帶 `rating`（建議值）；不帶 provider／route／model。伺服端回 `route`（提案欄位，C2）；客戶端照實寫進 ledger，不覆寫、不降級。
+- AC6 的「伺服端標回 explicit」需要 C2；本次只驗客戶端那一半：請求裡沒有 `provider`／`route`／`model` 鍵，且伺服端回的 `route` 原樣入帳。
+
+### S9 生成與抽卡
+- 指令：`nikuniku shoot <plan.json> --ledger gacha-ledger.json [--shot <id>] [--max-credits <n>] [--workspace <id>]`
+- 每個 take：`POST /v1/recipes/{recipe_id}/quotes {workspace_id, inputs:{shot_json, plan_sha256, take}}` → 預算檢查 → `POST /v1/recipes/{recipe_id}/runs {…, max_credits, dry_run:false, idempotency_key}` → 輪詢 `GET /v1/recipe-runs/{run_id}` 直到 `state` 終態且 `acceptance.verdict ∈ {passed, failed}`。
+- `idempotency_key = "dk-" + sha256(plan_sha256 + "|" + shot_id + "|" + take)[:40]`：中斷後重跑同一 ledger 會先讀回既有 take，不重複送出。
+- 抽卡規則（純函式 `director/gacha.mjs#decide`，AC7）：
+  1. 依 take 順序，**第一個** `verdict:"passed"` 的 take 採用；之後不再拍。
+  2. 同一 `failure_class` 累計失敗達 `budget.max_same_failure`（預設且上限 3）→ `stopped_same_failure`，停。
+  3. take 數達 `accept.max_takes` → `exhausted`，停。
+  4. `failed`／`pending`／`unavailable` **永不採用**；沒有「全失敗就挑分數最高」。
+  5. 伺服端快照沒有 `acceptance` 欄位 → 該 take `verdict:"unavailable"`、鏡 `acceptance_unavailable`、停（不猜、不採用），exit 1 `ACCEPTANCE_UNAVAILABLE`。
+  6. 預算：已報價總額＋本次 `max_units` > 上限（`--max-credits` 與 `plan.budget.max_credits` 取小）→ 不送 run，`budget_stopped`，exit 4 `ABOVE_MAX_CREDITS`。
+- 每個 take（含失敗類別）寫進 `gacha-ledger.json`＝失敗帳。失敗 take 誰付錢由伺服端規則決定（CORE-ASKS C4／Yves），客戶端只記錄伺服端回的 `charged_units`。
+
+### S10 拼接
+- 指令：`nikuniku assemble <plan.json> --ledger gacha-ledger.json --takes <dir> --out final.mp4`；`nikuniku assemble --verify qa-receipt.json`
+- 只接受 ledger 中 `status:"adopted"` 的鏡，檔案為 `<takes>/<shot_id>.mp4`（`shoot --download` 或 `run` 下載；下載時比對伺服端 sha256）。任一鏡未採用 → exit 3 `TAKE_NOT_ACCEPTED`。
+- `edl.json`（依 `order`）→ `ffmpeg -f concat -c copy`（只做硬切，不溶接、不補幀；REQUIREMENTS 與 preflight §3 步驟六）→ `qa-receipt.json`：`output_sha256` 為成片 sha256、`edl_sha256` 為 edl.json bytes 的 sha256、每段 take sha256。
+- `--verify`：重算成片與 EDL 的 sha256，不符 → exit 3 `RECEIPT_MISMATCH`（AC8）。
+
+### run（S7→S10 一次走完）
+- `nikuniku run <plan.json> --out final.mp4 [--max-credits n]`：先檢查 API key（AC11），再 lint（有 error 停）→ shoot（含下載）→ assemble。
+
+### MV（AC9）
+- `nikuniku mv --image <png> [--image …≤4] --audio <wav|mp3> --prompt <txt> [--max-credits n] [--wait --out f]`：沿用既有 `generate` 的 E1 路徑（多圖＋歌），差別只在「歌必填、至少一張圖」先檢查；草稿欄位名 `reference_audio_id`。
+- MCP `nikuniku_mv_draft`：上傳圖與歌、依能力表選模式、存草稿並報價，**不送出**（送出仍用既有 `nikuniku_submit`，先報價後花錢）。
+
+## 4. CLI 子指令總表
+
+| 指令 | 需要 key | 網路 | 產出 |
+|---|---|---|---|
+| `source` | 否 | 無 | source.json |
+| `breakdown` | 否 | 無 | breakdown.json、frames/ |
+| `plan` | 否 | 無 | plan.json |
+| `lint` | 否 | 無 | lint-report.json |
+| `whitebox` | 否 | 無 | *.svg |
+| `shoot` | **是** | `/v1` | gacha-ledger.json、takes/ |
+| `assemble` | 否（只拼已採用且已下載的 take） | 無 | edl.json、qa-receipt.json、成片 |
+| `run` | **是** | `/v1` | 全部 |
+| `mv` | **是** | `/v1` | job |
+
+共同旗標：`--lang <lang>`（或 `NIKUNIKU_LANG`）只影響 stderr 的人類訊息行。
+
+**輸出約定**：stdout 只放一行 JSON 結果；錯誤時 stderr 第一行是不翻譯的 JSON `{ok:false,error:{code,message}}`（`message` 為英文），第二行是本地化訊息（ar 以 U+2067…U+2069 包住）。
+
+## 5. 錯誤碼與 exit code
+
+| exit | 意義 |
+|---|---|
+| 0 | 成功 |
+| 1 | API／網路／執行期錯誤（伺服端錯誤原樣輸出其 envelope） |
+| 2 | 用法／設定錯誤，或送出前就拒絕（**沒有送出任何請求**） |
+| 3 | 檢查未過（lint error、receipt 不符、仍有鏡未採用） |
+| 4 | 超過預算上限（沒有送出 run） |
+
+| code | exit | 何時 |
+|---|---|---|
+| `USAGE` | 2 | 參數錯 |
+| `SCHEMA_INVALID` | 2 | 輸入 JSON 不合 schema（附前 5 個錯誤路徑） |
+| `API_KEY_REQUIRED` | 2 | 需要 key 的指令沒有 key |
+| `INVALID_BASE` | 2 | `NIKUNIKU_API_BASE` 不是 https（loopback 例外） |
+| `HOST_REFUSED` | 1 | 回應要我們去連白名單外的主機 |
+| `ACCEPT_REQUIRED` | 2 | 有鏡沒有 `accept` |
+| `FFMPEG_UNAVAILABLE` | 2 | 找不到 ffmpeg／ffprobe |
+| `FFMPEG_FAILED` | 1 | ffmpeg 非 0 結束 |
+| `LINT_FAILED` | 3 | lint 有 error |
+| `ACCEPTANCE_UNAVAILABLE` | 1 | 伺服端沒有回驗收判定 |
+| `ABOVE_MAX_CREDITS` | 4 | 報價超出上限 |
+| `SHOTS_NOT_ADOPTED` | 3 | shoot 結束仍有鏡未採用（停在三敗或用完次數） |
+| `TAKE_NOT_ACCEPTED` | 3 | assemble 遇到未採用的鏡 |
+| `TAKE_FILE_MISMATCH` | 3 | take 檔 sha256 與 ledger／伺服端不符 |
+| `RECEIPT_MISMATCH` | 3 | QaReceipt 驗證失敗 |
+| `SHA256_MISMATCH` | 1 | 下載內容與伺服端 sha256 不符（不寫檔） |
+| `UNSUPPORTED` | 2 | 能力表沒有對應模式 |
+
+## 6. MCP 工具（加在既有 `nikuniku` server，同一份 key）
+
+| 工具 | key | 副作用 | 說明 |
+|---|---|---|---|
+| `nikuniku_director_validate` | 否 | 無 | 依 schema 名驗證本機 JSON 檔 |
+| `nikuniku_director_lint` | 否 | 無 | S4，回 lint-report |
+| `nikuniku_director_whitebox` | 否 | 寫一個 SVG 檔 | S6 |
+| `nikuniku_director_take_submit` | 是 | **預留點數** | S9 單一 take：檢查 accept→報價→預算→run；回 run_id。長任務不佔住呼叫 |
+| `nikuniku_director_take_status` | 是 | 寫 ledger | 讀快照與判定、套抽卡規則，回 `next: adopt|retry|stop` |
+| `nikuniku_mv_draft` | 是 | 上傳、存草稿 | MV：圖＋歌→草稿＋報價，不送出 |
+
+守衛（AC13）：server 建立時檢查全部工具名稱、描述與 schema 字串，含成人主機或成人工具字樣（`adult`、`nsfw`、`porn`、`18+`、`r18`、`hentai`）即拒絕啟動。成人入口屬另一套件（ai-tools 計畫 §2.1，C5）。
+
+## 7. 十四語
+
+- 檔案：`locales/director/<lang>.json`，lang＝`en zh-Hant zh-Hans ja ko vi id th es pt-BR fr de ar hi`；每檔同一組鍵（`error.<CODE>`、`done.<command>`、`dir`）；`ar` 的 `dir` 為 `rtl`，其餘 `ltr`。
+- 語言決定：`--lang` > `NIKUNIKU_LANG` > `LC_ALL`／`LANG` 前綴對應 > `en`；不在清單 → `en`。
+- 機器輸出（stdout JSON、stderr 第一行 JSON、錯誤 code）不翻譯，任何語言下 byte 相同。
+- 翻譯品質：機器起草，**未委託人工審校**（與 locale-registry 的 `human_review: not commissioned` 一致），不宣稱母語審過。
+
+## 8. 伺服端契約（mock `/v1` 實作；★ 為對核心的提案）
+
+| 路由 | 用途 | 現況 |
+|---|---|---|
+| `POST /v1/recipes/{id}/quotes`、`/runs` | 每個 take | 路由已在核心，worker 未接線（C1） |
+| `GET /v1/recipe-runs/{run_id}` | 快照 | 已有；★`acceptance:{verdict, failure_class, checks[]}`、★`route` 需 C4／C2 |
+| `GET /v1/jobs/{job_id}/output` | 下載連結＋sha256 | 已有 |
+| 既有 assets/audio/drafts/quotes/jobs/capabilities/pricing/me | MV | 已有 |
+
+## 9. 驗收（AC → 測試檔）
+
+| AC | 測試檔 | 一句指令 |
+|---|---|---|
+| P1.1 | `tests/schemas.test.mjs` | `node scripts/validate-schemas.mjs` |
+| AC1 | `tests/network.test.mjs` | `node --test tests/network.test.mjs` |
+| AC2 | `tests/breakdown.test.mjs`、`tests/check-breakdown.mjs` | `node cli/nikuniku.mjs breakdown fixtures/x.mp4 --out b.json && node tests/check-breakdown.mjs b.json fixtures/x.truth.json` |
+| AC3 AC4 | `tests/lint-fixtures.test.mjs` | `node --test tests/lint-fixtures.test.mjs` |
+| S6 | `tests/whitebox.test.mjs` | `node --test tests/whitebox.test.mjs` |
+| AC5 | `tests/shotlist-accept.test.mjs` | `node --test tests/shotlist-accept.test.mjs` |
+| AC6（客戶端半） | `tests/gacha.test.mjs` | 同下 |
+| AC7 | `tests/gacha.test.mjs` | `node --test tests/gacha.test.mjs` |
+| AC8 | `tests/assemble.test.mjs` | `node --test tests/assemble.test.mjs` |
+| AC9 | `tests/mv.test.mjs` | `node cli/nikuniku.mjs mv --help && node --test tests/mv.test.mjs` |
+| AC11 | `tests/no-key.test.mjs` | `NIKUNIKU_API_KEY= node cli/nikuniku.mjs run plan.json; test $? -ne 0` |
+| AC12 | `tests/locales.test.mjs` | `node --test tests/locales.test.mjs` |
+| AC13 | `tests/mcp-no-adult.test.mjs` | `node --test tests/mcp-no-adult.test.mjs` |
+| AC10 | 驗收機手冊（P3） | 需 C1–C4＋驗收機帳號 |
+
+每項都要有反向驗證：刪掉對應守衛，對應測試變紅（PLAN P2 各項）。
+
+### 9.1 每條 AC 的 happy／edge
+
+| AC | happy | edge／error |
+|---|---|---|
+| AC1 | mock 全流程只連 mock 主機 | 輸出連結指向白名單外主機 → `HOST_REFUSED`、不寫檔 |
+| AC2 | 3 鏡 fixture 偵測 3 鏡、切點誤差 ≤0.5 s | 門檻改壞（>1）→ 只剩 1 鏡 → 檢查失敗；無 ffmpeg → `FFMPEG_UNAVAILABLE` |
+| AC3 | 乾淨 A＋B plan 0 個 error | 三種植入錯誤各報恰好一次 |
+| AC4 | 改寫過的台詞相似度低於門檻 | 抄原片台詞 → L004 |
+| AC5 | 每鏡有 accept → 送出 | 一鏡缺 accept → exit 2、mock 收到 0 個請求 |
+| AC6 | 請求不含 provider／route／model | 伺服端回 `route:"explicit"` 原樣入帳，客戶端宣告的 general 不覆寫 |
+| AC7 | 前兩敗第三過 → 採用第三 | 同類三敗 → 停並入帳；全失敗 → 不採用任何 take；無判定欄位 → `ACCEPTANCE_UNAVAILABLE` |
+| AC8 | receipt 雜湊＝成片 sha256 | 成片改 1 byte → `RECEIPT_MISMATCH`；未採用鏡 → `TAKE_NOT_ACCEPTED` |
+| AC9 | `mv` 送出草稿帶 `reference_audio_id` | 沒給 `--audio` → exit 2、0 請求 |
+| AC11 | 無 key 時 breakdown／plan／lint／whitebox 正常 | 無 key 跑 `run`／`shoot`／`mv` → `API_KEY_REQUIRED`、0 請求 |
+| AC12 | 十四語同鍵、ar 為 RTL 並以隔離字元包住 | 任一語言缺鍵即失敗；stdout JSON 在各語言下相同 |
+| AC13 | 一般工具清單無成人工具 | 注入成人工具 → server 拒絕啟動 |
+
+## 10. 非目標
+
+- 下載平台影片、繞過浮水印、任何換皮 SOP（REQUIREMENTS R1）。
+- 本機轉錄模型、本機視覺模型（16 GB 機器；交給 IDE agent 或匯入 SRT）。
+- 客戶端自判合格、自選供應商、自降分級。
+- 溶接／補幀／穩像遮蓋接縫。
+
+## 11. 推播／召回
+
+N/A：本規格是開發者工具（CLI／MCP／IDE），沒有使用者帳號層的通知通道。生成完成沿用 `/v1` 工作狀態查詢與既有 webhook；網頁端召回屬 nikuniku Studio 範圍（REQUIREMENTS §9）。
+
+## 12. Rollback
+
+所有改動在 `fg/director-kit` 分支；`git revert <sha>` 逐個 commit 回退。對既有匯出檔的改動只有 `cli/nikuniku.mjs`、`mcp/nikuniku-mcp.mjs` 的掛載點與 `tests/mock-api.mjs` 的擴充，`git diff e8a0053 -- cli mcp tests/mock-api.mjs` 可看全貌。

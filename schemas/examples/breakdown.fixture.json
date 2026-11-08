@@ -1,0 +1,5 @@
+{"schema_version":1,"source_id":"src-a","source_sha256":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","tool":{"name":"nikuniku-director","version":"0.1.0","scene_threshold":0.3,"min_shot_s":0.4},"duration_s":3.5,"transcript_source":"none",
+ "shots":[
+  {"shot_index":0,"start_s":0,"end_s":1,"keyframe":null,"framing":"unknown","camera_move":"unknown","characters":[],"dialogue":[],"lighting":null,"props":[],"hook":null,"description":null,"filled_by":"detector"},
+  {"shot_index":1,"start_s":1,"end_s":2.5,"keyframe":"frames/001.png","framing":"close","camera_move":"static","characters":["girl"],"dialogue":[{"speaker":"girl","text":"你終於來了。","lang":"zh-Hant","start_s":1.2}],"lighting":"夕陽逆光","props":["信"],"hook":"揭露信件","description":"女孩舉起一封信","filled_by":"agent"},
+  {"shot_index":2,"start_s":2.5,"end_s":3.5,"keyframe":null,"framing":"unknown","camera_move":"unknown","characters":[],"dialogue":[],"lighting":null,"props":[],"hook":null,"description":null,"filled_by":"detector"}]}

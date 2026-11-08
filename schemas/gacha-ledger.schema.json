@@ -1,0 +1,189 @@
+{
+ "$schema": "https://json-schema.org/draft/2020-12/schema",
+ "$id": "https://github.com/nikuniku-ai/creator-kit/schemas/gacha-ledger.schema.json",
+ "title": "S9 gacha-ledger.json — every take per shot and which one was adopted",
+ "type": "object",
+ "additionalProperties": false,
+ "required": [
+  "schema_version",
+  "plan_sha256",
+  "project_id",
+  "credits",
+  "shots"
+ ],
+ "properties": {
+  "schema_version": {
+   "const": 1
+  },
+  "plan_sha256": {
+   "$ref": "#/$defs/sha256"
+  },
+  "project_id": {
+   "$ref": "#/$defs/id"
+  },
+  "credits": {
+   "type": "object",
+   "additionalProperties": false,
+   "required": [
+    "max",
+    "quoted_total"
+   ],
+   "properties": {
+    "max": {
+     "type": "integer",
+     "minimum": 0
+    },
+    "quoted_total": {
+     "type": "integer",
+     "minimum": 0
+    }
+   }
+  },
+  "shots": {
+   "type": "array",
+   "minItems": 0,
+   "maxItems": 500,
+   "items": {
+    "type": "object",
+    "additionalProperties": false,
+    "required": [
+     "shot_id",
+     "status",
+     "adopted",
+     "takes"
+    ],
+    "properties": {
+     "shot_id": {
+      "$ref": "#/$defs/id"
+     },
+     "status": {
+      "enum": [
+       "adopted",
+       "stopped_same_failure",
+       "exhausted",
+       "budget_stopped",
+       "acceptance_unavailable",
+       "not_started"
+      ]
+     },
+     "adopted": {
+      "oneOf": [
+       {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+         "take",
+         "job_id",
+         "run_id"
+        ],
+        "properties": {
+         "take": {
+          "type": "integer",
+          "minimum": 1
+         },
+         "job_id": {
+          "$ref": "#/$defs/id"
+         },
+         "run_id": {
+          "$ref": "#/$defs/id"
+         }
+        }
+       },
+       {
+        "type": "null"
+       }
+      ]
+     },
+     "takes": {
+      "type": "array",
+      "minItems": 0,
+      "maxItems": 10,
+      "items": {
+       "type": "object",
+       "additionalProperties": false,
+       "required": [
+        "take",
+        "run_id",
+        "job_id",
+        "verdict",
+        "failure_class",
+        "route",
+        "charged_units"
+       ],
+       "properties": {
+        "take": {
+         "type": "integer",
+         "minimum": 1,
+         "maximum": 10
+        },
+        "run_id": {
+         "$ref": "#/$defs/id"
+        },
+        "job_id": {
+         "$ref": "#/$defs/id"
+        },
+        "verdict": {
+         "enum": [
+          "passed",
+          "failed",
+          "pending",
+          "unavailable"
+         ]
+        },
+        "failure_class": {
+         "type": [
+          "string",
+          "null"
+         ],
+         "maxLength": 64
+        },
+        "route": {
+         "type": [
+          "string",
+          "null"
+         ],
+         "maxLength": 64
+        },
+        "charged_units": {
+         "type": [
+          "integer",
+          "null"
+         ],
+         "minimum": 0
+        }
+       }
+      }
+     }
+    }
+   }
+  }
+ },
+ "$defs": {
+  "id": {
+   "type": "string",
+   "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,127}$"
+  },
+  "sha256": {
+   "type": "string",
+   "pattern": "^[a-f0-9]{64}$"
+  },
+  "lang": {
+   "enum": [
+    "en",
+    "zh-Hant",
+    "zh-Hans",
+    "ja",
+    "ko",
+    "vi",
+    "id",
+    "th",
+    "es",
+    "pt-BR",
+    "fr",
+    "de",
+    "ar",
+    "hi"
+   ]
+  }
+ }
+}

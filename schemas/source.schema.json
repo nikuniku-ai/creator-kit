@@ -1,0 +1,143 @@
+{
+ "$schema": "https://json-schema.org/draft/2020-12/schema",
+ "$id": "https://github.com/nikuniku-ai/creator-kit/schemas/source.schema.json",
+ "title": "S1 source.json — one reference video and its rights status",
+ "type": "object",
+ "additionalProperties": false,
+ "required": [
+  "schema_version",
+  "source_id",
+  "url",
+  "local_file",
+  "sha256",
+  "duration_ms",
+  "lang",
+  "found_by",
+  "rights",
+  "usable_for",
+  "created_at"
+ ],
+ "properties": {
+  "schema_version": {
+   "const": 1
+  },
+  "source_id": {
+   "$ref": "#/$defs/id"
+  },
+  "url": {
+   "type": [
+    "string",
+    "null"
+   ],
+   "pattern": "^https://",
+   "maxLength": 2048
+  },
+  "local_file": {
+   "type": [
+    "string",
+    "null"
+   ],
+   "maxLength": 4096
+  },
+  "sha256": {
+   "oneOf": [
+    {
+     "$ref": "#/$defs/sha256"
+    },
+    {
+     "type": "null"
+    }
+   ]
+  },
+  "duration_ms": {
+   "type": [
+    "integer",
+    "null"
+   ],
+   "minimum": 1,
+   "maximum": 3600000
+  },
+  "lang": {
+   "$ref": "#/$defs/lang"
+  },
+  "found_by": {
+   "enum": [
+    "creator_url",
+    "creator_file",
+    "agent_search"
+   ]
+  },
+  "rights": {
+   "type": "object",
+   "additionalProperties": false,
+   "required": [
+    "status",
+    "ref",
+    "note"
+   ],
+   "properties": {
+    "status": {
+     "enum": [
+      "owned",
+      "licensed",
+      "public_domain",
+      "unlicensed_reference",
+      "unknown"
+     ]
+    },
+    "ref": {
+     "type": [
+      "string",
+      "null"
+     ],
+     "maxLength": 512
+    },
+    "note": {
+     "type": [
+      "string",
+      "null"
+     ],
+     "maxLength": 2000
+    }
+   }
+  },
+  "usable_for": {
+   "enum": [
+    "analysis_only",
+    "generation"
+   ]
+  },
+  "created_at": {
+   "type": "string",
+   "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T"
+  }
+ },
+ "$defs": {
+  "id": {
+   "type": "string",
+   "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,127}$"
+  },
+  "sha256": {
+   "type": "string",
+   "pattern": "^[a-f0-9]{64}$"
+  },
+  "lang": {
+   "enum": [
+    "en",
+    "zh-Hant",
+    "zh-Hans",
+    "ja",
+    "ko",
+    "vi",
+    "id",
+    "th",
+    "es",
+    "pt-BR",
+    "fr",
+    "de",
+    "ar",
+    "hi"
+   ]
+  }
+ }
+}

@@ -1,0 +1,144 @@
+{
+ "$schema": "https://json-schema.org/draft/2020-12/schema",
+ "$id": "https://github.com/nikuniku-ai/creator-kit/schemas/lint-report.schema.json",
+ "title": "S4 lint-report.json — logic self-check of a plan",
+ "type": "object",
+ "additionalProperties": false,
+ "required": [
+  "schema_version",
+  "plan_sha256",
+  "passed",
+  "similarity",
+  "findings"
+ ],
+ "properties": {
+  "schema_version": {
+   "const": 1
+  },
+  "plan_sha256": {
+   "$ref": "#/$defs/sha256"
+  },
+  "passed": {
+   "type": "boolean"
+  },
+  "similarity": {
+   "type": "object",
+   "additionalProperties": false,
+   "required": [
+    "max",
+    "threshold",
+    "n"
+   ],
+   "properties": {
+    "max": {
+     "type": "number",
+     "minimum": 0,
+     "maximum": 1
+    },
+    "threshold": {
+     "type": "number",
+     "minimum": 0,
+     "maximum": 1
+    },
+    "n": {
+     "const": 3
+    }
+   }
+  },
+  "findings": {
+   "type": "array",
+   "minItems": 0,
+   "maxItems": 10000,
+   "items": {
+    "type": "object",
+    "additionalProperties": false,
+    "required": [
+     "code",
+     "severity",
+     "path",
+     "shot_id",
+     "scene_id",
+     "message",
+     "evidence"
+    ],
+    "properties": {
+     "code": {
+      "type": "string",
+      "pattern": "^L[0-9]{3}_[A-Z_]+$"
+     },
+     "severity": {
+      "enum": [
+       "error",
+       "warning"
+      ]
+     },
+     "path": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 512
+     },
+     "shot_id": {
+      "oneOf": [
+       {
+        "$ref": "#/$defs/id"
+       },
+       {
+        "type": "null"
+       }
+      ]
+     },
+     "scene_id": {
+      "oneOf": [
+       {
+        "$ref": "#/$defs/id"
+       },
+       {
+        "type": "null"
+       }
+      ]
+     },
+     "message": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 1000
+     },
+     "evidence": {
+      "type": [
+       "string",
+       "null"
+      ],
+      "maxLength": 2000
+     }
+    }
+   }
+  }
+ },
+ "$defs": {
+  "id": {
+   "type": "string",
+   "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,127}$"
+  },
+  "sha256": {
+   "type": "string",
+   "pattern": "^[a-f0-9]{64}$"
+  },
+  "lang": {
+   "enum": [
+    "en",
+    "zh-Hant",
+    "zh-Hans",
+    "ja",
+    "ko",
+    "vi",
+    "id",
+    "th",
+    "es",
+    "pt-BR",
+    "fr",
+    "de",
+    "ar",
+    "hi"
+   ]
+  }
+ }
+}

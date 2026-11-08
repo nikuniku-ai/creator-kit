@@ -1,0 +1,257 @@
+{
+ "$schema": "https://json-schema.org/draft/2020-12/schema",
+ "$id": "https://github.com/nikuniku-ai/creator-kit/schemas/breakdown.schema.json",
+ "title": "S2 breakdown.json — shots detected in one source",
+ "type": "object",
+ "additionalProperties": false,
+ "required": [
+  "schema_version",
+  "source_id",
+  "source_sha256",
+  "tool",
+  "duration_s",
+  "transcript_source",
+  "shots"
+ ],
+ "properties": {
+  "schema_version": {
+   "const": 1
+  },
+  "source_id": {
+   "$ref": "#/$defs/id"
+  },
+  "source_sha256": {
+   "$ref": "#/$defs/sha256"
+  },
+  "tool": {
+   "type": "object",
+   "additionalProperties": false,
+   "required": [
+    "name",
+    "version",
+    "scene_threshold",
+    "min_shot_s"
+   ],
+   "properties": {
+    "name": {
+     "const": "nikuniku-director"
+    },
+    "version": {
+     "type": "string",
+     "minLength": 1,
+     "maxLength": 32
+    },
+    "scene_threshold": {
+     "type": "number",
+     "minimum": 0,
+     "maximum": 1
+    },
+    "min_shot_s": {
+     "type": "number",
+     "minimum": 0,
+     "maximum": 10
+    }
+   }
+  },
+  "duration_s": {
+   "type": "number",
+   "minimum": 0,
+   "maximum": 86400
+  },
+  "transcript_source": {
+   "enum": [
+    "none",
+    "srt",
+    "agent",
+    "human"
+   ]
+  },
+  "shots": {
+   "type": "array",
+   "minItems": 1,
+   "maxItems": 5000,
+   "items": {
+    "type": "object",
+    "additionalProperties": false,
+    "required": [
+     "shot_index",
+     "start_s",
+     "end_s",
+     "keyframe",
+     "framing",
+     "camera_move",
+     "characters",
+     "dialogue",
+     "lighting",
+     "props",
+     "hook",
+     "description",
+     "filled_by"
+    ],
+    "properties": {
+     "shot_index": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 100000
+     },
+     "start_s": {
+      "type": "number",
+      "minimum": 0,
+      "maximum": 86400
+     },
+     "end_s": {
+      "type": "number",
+      "minimum": 0,
+      "maximum": 86400
+     },
+     "keyframe": {
+      "type": [
+       "string",
+       "null"
+      ],
+      "maxLength": 4096
+     },
+     "framing": {
+      "enum": [
+       "extreme_wide",
+       "wide",
+       "medium",
+       "medium_close",
+       "close",
+       "extreme_close",
+       "unknown"
+      ]
+     },
+     "camera_move": {
+      "enum": [
+       "static",
+       "pan",
+       "tilt",
+       "dolly",
+       "truck",
+       "orbit",
+       "handheld",
+       "zoom",
+       "unknown"
+      ]
+     },
+     "characters": {
+      "type": "array",
+      "minItems": 0,
+      "maxItems": 32,
+      "items": {
+       "$ref": "#/$defs/id"
+      }
+     },
+     "dialogue": {
+      "type": "array",
+      "minItems": 0,
+      "maxItems": 64,
+      "items": {
+       "type": "object",
+       "additionalProperties": false,
+       "required": [
+        "speaker",
+        "text",
+        "lang"
+       ],
+       "properties": {
+        "speaker": {
+         "oneOf": [
+          {
+           "$ref": "#/$defs/id"
+          },
+          {
+           "type": "null"
+          }
+         ]
+        },
+        "text": {
+         "type": "string",
+         "minLength": 1,
+         "maxLength": 1000
+        },
+        "lang": {
+         "$ref": "#/$defs/lang"
+        },
+        "start_s": {
+         "type": [
+          "number",
+          "null"
+         ],
+         "minimum": 0
+        }
+       }
+      }
+     },
+     "lighting": {
+      "type": [
+       "string",
+       "null"
+      ],
+      "maxLength": 2000
+     },
+     "props": {
+      "type": "array",
+      "minItems": 0,
+      "maxItems": 64,
+      "items": {
+       "type": "string",
+       "minLength": 1,
+       "maxLength": 200
+      }
+     },
+     "hook": {
+      "type": [
+       "string",
+       "null"
+      ],
+      "maxLength": 2000
+     },
+     "description": {
+      "type": [
+       "string",
+       "null"
+      ],
+      "maxLength": 4000
+     },
+     "filled_by": {
+      "enum": [
+       "detector",
+       "agent",
+       "human"
+      ]
+     }
+    }
+   }
+  }
+ },
+ "$defs": {
+  "id": {
+   "type": "string",
+   "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,127}$"
+  },
+  "sha256": {
+   "type": "string",
+   "pattern": "^[a-f0-9]{64}$"
+  },
+  "lang": {
+   "enum": [
+    "en",
+    "zh-Hant",
+    "zh-Hans",
+    "ja",
+    "ko",
+    "vi",
+    "id",
+    "th",
+    "es",
+    "pt-BR",
+    "fr",
+    "de",
+    "ar",
+    "hi"
+   ]
+  }
+ }
+}

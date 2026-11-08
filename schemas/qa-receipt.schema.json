@@ -1,0 +1,101 @@
+{
+ "$schema": "https://json-schema.org/draft/2020-12/schema",
+ "$id": "https://github.com/nikuniku-ai/creator-kit/schemas/qa-receipt.schema.json",
+ "title": "S10 qa-receipt.json — binds the final cut to its EDL and adopted takes",
+ "type": "object",
+ "additionalProperties": false,
+ "required": [
+  "schema_version",
+  "kind",
+  "output_file",
+  "output_sha256",
+  "output_bytes",
+  "edl_sha256",
+  "takes",
+  "created_at"
+ ],
+ "properties": {
+  "schema_version": {
+   "const": 1
+  },
+  "kind": {
+   "const": "nikuniku.director.qa_receipt"
+  },
+  "output_file": {
+   "type": "string",
+   "minLength": 1,
+   "maxLength": 4096
+  },
+  "output_sha256": {
+   "$ref": "#/$defs/sha256"
+  },
+  "output_bytes": {
+   "type": "integer",
+   "minimum": 1
+  },
+  "edl_sha256": {
+   "$ref": "#/$defs/sha256"
+  },
+  "takes": {
+   "type": "array",
+   "minItems": 1,
+   "maxItems": 500,
+   "items": {
+    "type": "object",
+    "additionalProperties": false,
+    "required": [
+     "shot_id",
+     "job_id",
+     "sha256",
+     "verdict"
+    ],
+    "properties": {
+     "shot_id": {
+      "$ref": "#/$defs/id"
+     },
+     "job_id": {
+      "$ref": "#/$defs/id"
+     },
+     "sha256": {
+      "$ref": "#/$defs/sha256"
+     },
+     "verdict": {
+      "const": "passed"
+     }
+    }
+   }
+  },
+  "created_at": {
+   "type": "string",
+   "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T"
+  }
+ },
+ "$defs": {
+  "id": {
+   "type": "string",
+   "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,127}$"
+  },
+  "sha256": {
+   "type": "string",
+   "pattern": "^[a-f0-9]{64}$"
+  },
+  "lang": {
+   "enum": [
+    "en",
+    "zh-Hant",
+    "zh-Hans",
+    "ja",
+    "ko",
+    "vi",
+    "id",
+    "th",
+    "es",
+    "pt-BR",
+    "fr",
+    "de",
+    "ar",
+    "hi"
+   ]
+  }
+ }
+}
