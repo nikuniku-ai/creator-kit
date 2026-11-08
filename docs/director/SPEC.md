@@ -183,7 +183,7 @@ tests/*.test.mjs   tests/mock-api.mjs（擴充）
 - 只接受 ledger 中 `status:"adopted"` 的鏡，檔案為 `<takes>/<shot_id>.mp4`（`shoot --download` 或 `run` 下載；下載時比對伺服端 sha256）。任一鏡未採用 → exit 3 `TAKE_NOT_ACCEPTED`。
 - `edl.json`（依 `order`）→ `ffmpeg -f concat -c copy`（只做硬切，不溶接、不補幀；REQUIREMENTS 與 preflight §3 步驟六）→ `qa-receipt.json`：`output_sha256` 為成片 sha256、`edl_sha256` 為 edl.json bytes 的 sha256、每段 take sha256。
 - 每段 take 檔的 sha256 必須等於 ledger 中伺服端回的 `output_sha256`（下載時已比對），否則 exit 3 `TAKE_FILE_MISMATCH`。
-- assemble 需要有效 key（AC11，2026-11-08 Studio 裁定；ACCEPT-ae8c4ef 以自洽偽造 ledger 證實離線無法分辨）。本機檢查（ledger 語意、take 檔 sha256）通過後、寫任何檔之前，對每個採用的鏡呼叫 `GET /v1/recipe-runs/{run_id}?workspace_id=<ledger.workspace_id>`（與 shoot 輪詢同一支）：查無此 run → `SERVER_RUN_NOT_FOUND`；伺服器未判 passed（失敗、待判、無判定）→ `SERVER_NOT_PASSED`；伺服器 output sha256 與檔案不符 → `SERVER_SHA_MISMATCH`；無 key → `API_KEY_REQUIRED`（0 請求）。全過才出片，輸出 `server_acceptance:"checked_at_assemble"`、`server_accepted:true`。`--verify` 離線、只證明拼接完整性，永遠回 `server_acceptance:"unverified"`、`server_accepted:false` 並在 stderr 加「未經 nikuniku 驗收」；qa-receipt 本身沒有伺服器簽章（C7），檔內 `server_acceptance` 仍為 `"unverified"`（schema `const`）。
+- assemble 需要有效 key（AC11，2026-11-08 Studio 裁定；ACCEPT-ae8c4ef 以自洽偽造 ledger 證實離線無法分辨）。本機檢查（ledger 語意、take 檔 sha256）通過後、寫任何檔之前，對每個採用的鏡呼叫 `GET /v1/recipe-runs/{run_id}?workspace_id=<ledger.workspace_id>`（與 shoot 輪詢同一支）：查無此 run → `SERVER_RUN_NOT_FOUND`；伺服器未判 passed（失敗、待判、無判定）→ `SERVER_NOT_PASSED`；伺服器 output sha256 與檔案不符 → `SERVER_SHA_MISMATCH`；無 key → `API_KEY_REQUIRED`（0 請求）。run 必須就是這個 take：伺服器回的 `run_id`／`job_id` 與 ledger 相同、`recipe_id` 等於該鏡的 `recipe_id`（沒有時用 `--recipe`，再沒有用 `director_shot`），且同一個 run 不得被兩個鏡採用 → 否則 `SERVER_RUN_MISMATCH`。多個鏡各有問題時，訊息逐一列出（exit／code 取第一類）。剪進成片的是「被雜湊、被伺服器確認的那份 bytes」的私有暫存拷貝（0700 暫存目錄、固定檔名），不是 `--takes` 裡的檔案本身；檢查後換檔（TOCTOU）或在 `--takes` 路徑裡藏換行都無法把別的內容剪進去（獨立 verifier 對 2cee4a8 的反例）。全過才出片，輸出 `server_acceptance:"checked_at_assemble"`、`server_accepted:true`、`checked_by:<API origin>`。**限制**：`NIKUNIKU_API_BASE` 指向哪台伺服器，就由那台背書；run 與鏡頭內容（shot_json）的綁定要等伺服端在快照裡回傳輸入或簽章（C4／C7）。`--verify` 離線、只證明拼接完整性，永遠回 `server_acceptance:"unverified"`、`server_accepted:false` 並在 stderr 加「未經 nikuniku 驗收」；qa-receipt 本身沒有伺服器簽章（C7），檔內 `server_acceptance` 仍為 `"unverified"`（schema `const`）。
 - receipt 帶 `edl_file`（相對於 receipt 所在目錄）、`output_file`（同）、`plan_sha256`。
 - `--verify`：重算成片 sha256 與 bytes、EDL sha256；EDL 的每段 shot／job／sha256 與 receipt.takes 一一相符；給 `--takes` 時再重算每段 take 檔 sha256。任一不符 → exit 3 `RECEIPT_MISMATCH`（AC8）。**receipt 證明的是「這支成片由這些檔案依此 EDL 拼成」，不證明伺服端驗收**（見 TL;DR 3）。
 
@@ -239,6 +239,7 @@ tests/*.test.mjs   tests/mock-api.mjs（擴充）
 | `TAKE_NOT_ACCEPTED` | 3 | assemble 遇到未採用的鏡 |
 | `TAKE_FILE_MISMATCH` | 3 | take 檔 sha256 與 ledger／伺服端不符 |
 | `SERVER_RUN_NOT_FOUND` | 3 | assemble 出片前向伺服器核對：查無 ledger 採用的 run（AC11） |
+| `SERVER_RUN_MISMATCH` | 3 | assemble 出片前核對：伺服器描述的 run_id／job_id 與 ledger 不同、配方不是該鏡的 `recipe_id`（或 `--recipe`／`director_shot`），或同一個 run 被兩個鏡採用 |
 | `SERVER_NOT_PASSED` | 3 | assemble 出片前核對：伺服器未判定該 take 通過（失敗、待判、無判定） |
 | `SERVER_SHA_MISMATCH` | 3 | assemble 出片前核對：伺服器回報的 output sha256 與檔案不符 |
 | `RECEIPT_MISMATCH` | 3 | QaReceipt 驗證失敗 |
