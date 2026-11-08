@@ -61,3 +61,22 @@ test('AC1: a link whose sha256 differs from the run, or bytes that differ from b
   assert.equal(r.code,1,flag);assert.equal(r.err.error.code,'SHA256_MISMATCH',flag);
   assert.ok(!existsSync(x.takes)||readdirSync(x.takes).length===0,flag);}
 });
+
+// AC1 (2026-11-08 clarification): API calls only to NIKUNIKU_API_BASE; a take is downloaded only from the link that run
+// returned, on *.nikuniku.ai, without the key. fetch is intercepted and routed to the mock: nothing leaves this machine.
+test('AC1: with the API on api.nikuniku.ai, each adopted take comes from its own run\'s media.nikuniku.ai link, without the key; every other call is on the API base',async()=>{
+ const {shoot}=await import('../director/shoot.mjs');const seen=[],real=globalThis.fetch;
+ mock.director.outputHost='https://media.nikuniku.ai';mock.director.outcomes={s1:[{verdict:'failed',failure_class:'framing'},{verdict:'passed'}]};
+ globalThis.fetch=(url,init={})=>{const u=new URL(String(url));
+  seen.push({origin:u.origin,path:u.pathname,auth:new Headers(init.headers).has('authorization')});
+  return real(mock.base+u.pathname+u.search,init);};
+ let r;try{const x=planFile();r=await shoot({positional:[x.f],ledger:x.ledger,takes:x.takes,apiKey:KEY,apiBase:apiBase('https://api.nikuniku.ai')});}
+ finally{globalThis.fetch=real;}
+ assert.equal(r.result.ok,true,JSON.stringify(r.result));
+ const media=seen.filter(s=>s.origin==='https://media.nikuniku.ai'),api=seen.filter(s=>s.origin==='https://api.nikuniku.ai');
+ assert.equal(media.length+api.length,seen.length,'no third host: '+JSON.stringify(seen.map(s=>s.origin)));
+ const adopted=r.result.data.shots.map(s=>`/files/job_${s.shot_id}_${s.adopted_take}`).sort();
+ assert.deepEqual(media.map(s=>s.path).sort(),adopted,'one download per adopted take, each from its own run\'s link');
+ assert.ok(media.every(s=>!s.auth),'the key is never sent to the media host');
+ assert.ok(api.length>=8&&api.every(s=>s.auth&&s.path.startsWith('/v1/')),'every API call carries the key and stays on the base');
+});
