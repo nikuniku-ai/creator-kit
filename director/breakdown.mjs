@@ -15,7 +15,7 @@ import {LOCALES} from './i18n.mjs';
 const run=promisify(execFile);
 export const VERSION='0.1.0';
 
-async function ff(bin,args){
+export async function ff(bin,args){
  try{return await run(bin,args,{maxBuffer:64<<20});}
  catch(e){if(e.code==='ENOENT')throw new Refusal('FFMPEG_UNAVAILABLE',`${bin} was not found; install ffmpeg`,2);throw new Refusal('FFMPEG_FAILED',`${bin} exited ${e.code}`,1);}
 }
@@ -35,7 +35,7 @@ export async function detectCuts(video,threshold){
  const {stderr}=await ff('ffmpeg',['-hide_banner','-nostats','-i',video,'-an','-vf',`select='gt(scene,${threshold})',showinfo`,'-f','null','-']);
  return [...stderr.matchAll(/pts_time:([0-9.]+)/g)].map(m=>Number(m[1]));
 }
-async function duration(video){
+export async function duration(video){
  const {stdout}=await ff('ffprobe',['-v','error','-show_entries','format=duration','-of','default=nw=1:nk=1',video]);
  const d=Number(stdout.trim());if(!Number.isFinite(d)||d<=0)throw new Refusal('FFMPEG_FAILED','ffprobe found no duration',1);return d;
 }
