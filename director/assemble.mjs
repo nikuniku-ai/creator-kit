@@ -3,12 +3,11 @@
 // for that take. Hard cuts with stream copy (ffmpeg concat demuxer, -c copy): no dissolve, no frame interpolation, no
 // re-encode. The receipt proves "this film was cut from these files by this EDL"; it does NOT prove server acceptance
 // (the ledger is a local record; SPEC TL;DR 3). `--verify` recomputes every hash it names.
-// AC11 (ACCEPT-ae8c4ef FAIL; Studio ruling 2026-11-08): a self-consistent ledger the server never issued cannot be told
-// apart offline, so assemble needs a valid key and, before writing anything, asks the server (GET /v1/recipe-runs/{run_id},
+// AC11: a self-consistent ledger the server never issued cannot be told apart offline, so assemble needs a valid key and, before writing anything, asks the server (GET /v1/recipe-runs/{run_id},
 // the same call shoot polls) about every adopted take: the run must exist (SERVER_RUN_NOT_FOUND), the server must have
 // passed it (SERVER_NOT_PASSED) and its output sha256 must equal the file (SERVER_SHA_MISMATCH). tests/assemble.test.mjs AC11.
 // `--verify` is offline and only proves cut integrity: it always reports server_acceptance "unverified" and
-// server_accepted false, and the receipt itself (no server signature, CORE-ASKS C7) stays "unverified".
+// server_accepted false, and the receipt itself (no server signature yet; see SPEC §8) stays "unverified".
 import {createHash} from 'node:crypto';
 import {readFileSync,existsSync,mkdirSync,mkdtempSync,writeFileSync,renameSync,unlinkSync,rmSync} from 'node:fs';
 import {tmpdir} from 'node:os';
@@ -35,10 +34,10 @@ export const CHECKED={server_acceptance:'checked_at_assemble',server_accepted:tr
 
 // Ask the server about each adopted take; returns a refusal naming every refused take (the exit code follows the first
 // kind in this order), or null. The run the server describes must be THIS take: its run id and job id, the shot's recipe,
-// and no run adopted by two shots (independent verifier on 2cee4a8: crossshot / otherrecipe). The snapshot must also echo
+// and no run adopted by two shots (otherwise one passed run could vouch for several shots). The snapshot must also echo
 // the inputs the run was made with — this plan's sha256, this shot's projection, this take number — so a real run of
 // another shot or another plan is refused; a snapshot without inputs is refused too (fail closed; the echo is part of the
-// CORE-ASKS C4 proposal, second independent verifier on 7d5f042).
+// draft server interface in SPEC §8).
 const sameInputs=(got,want)=>!!got&&typeof got==='object'&&Object.entries(want).every(([k,v])=>got[k]===v);
 async function serverCheck(picks,ws,{key,api,recipe,planSha}){
  const q=encodeURIComponent,found={SERVER_RUN_NOT_FOUND:[],SERVER_RUN_MISMATCH:[],SERVER_NOT_PASSED:[],SERVER_SHA_MISMATCH:[]};
@@ -79,7 +78,7 @@ export async function assemble(o){
  if(bad.length)return {exit:3,result:{ok:false,error:{code:'TAKE_FILE_MISMATCH',message:bad.join('; ')+'; nothing was written'}}};
  const refused=await serverCheck(picks,validId(ledger.workspace_id,'workspace_id'),{key,api,recipe:o.recipe,planSha});if(refused)return refused;
  // What is cut is a private copy of the very bytes that were hashed and confirmed, not the take files, which could change
- // between the check and ffmpeg (TOCTOU, independent verifier on 2cee4a8). The copies have fixed names, so no path the
+ // between the check and ffmpeg (a time-of-check/time-of-use gap). The copies have fixed names, so no path the
  // caller chose ever reaches the concat list; a newline in the private folder's own path is refused outright.
  const work=mkdtempSync(join(tmpdir(),'nikuniku-assemble-'));
  try{

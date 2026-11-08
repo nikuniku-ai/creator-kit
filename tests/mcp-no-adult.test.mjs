@@ -1,4 +1,4 @@
-// AC13 (P2.7, SPEC §6): the general MCP package lists no adult tool or adult host. The guard runs when the server is
+// AC13 (SPEC §6): the general MCP package lists no adult tool or adult host. The guard runs when the server is
 // created and refuses to start if any tool name, description or input schema carries an adult marker — so a later edit
 // that adds one fails here, and deleting the guard turns these tests red. Also: the director tools are registered and the
 // local ones work without a key.

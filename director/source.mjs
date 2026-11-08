@@ -1,6 +1,6 @@
 // S1 (docs/director/SPEC.md §3 S1): write source.json for a reference the creator supplies (a URL or a local file).
 // Nothing is downloaded or fetched: a URL is only recorded. Rights are the creator's statement; unlicensed_reference and
-// unknown are analysis-only (REQUIREMENTS D4 — whether a use is lawful is for a lawyer, not this tool).
+// unknown are analysis-only (whether a use is lawful is for a lawyer, not this tool).
 import {createHash} from 'node:crypto';
 import {existsSync,readFileSync} from 'node:fs';
 import {Refusal} from '../client/nikuniku-api.mjs';

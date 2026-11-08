@@ -1,4 +1,4 @@
-// S6 (P2.3, SPEC §3 S6): scene layout boxes + shot camera → SVG whitebox. Face count after back-face culling, camera
+// S6 (SPEC §3 S6): scene layout boxes + shot camera → SVG whitebox. Face count after back-face culling, camera
 // forward direction and painter order (far → near) are asserted so reversing the camera or dropping culling turns red.
 import {test} from 'node:test';
 import assert from 'node:assert/strict';

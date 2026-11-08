@@ -13,7 +13,7 @@ const onNikuniku=host=>host==='nikuniku.ai'||host.endsWith('.nikuniku.ai');
 export function linkAllowed(api,link){
  let url,base;try{url=new URL(link);base=new URL(api.origin);}catch{return false;}
  if(url.username||url.password)return false;
- // Same host means same host AND port (independent verifier on b682ae0: another port is another service).
+ // Same host means same host AND port (another port is another service).
  const sameHost=url.hostname===base.hostname&&url.port===base.port;
  if(url.protocol==='https:'&&(sameHost||onNikuniku(base.hostname)&&onNikuniku(url.hostname)&&url.port===''))return true;
  return api.loopback&&url.protocol==='http:'&&sameHost;

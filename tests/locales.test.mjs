@@ -1,4 +1,4 @@
-// AC12 (P2.7, SPEC §7): fourteen locale files with the same keys; every error code the kit can emit has a message in every
+// AC12 (SPEC §7): fourteen locale files with the same keys; every error code the kit can emit has a message in every
 // language; ar is right-to-left and isolated; machine output (stdout JSON, first stderr line) is byte-identical in every
 // language.
 import {test} from 'node:test';

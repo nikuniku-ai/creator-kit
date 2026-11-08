@@ -2,8 +2,8 @@
 // Director kit extension (docs/director/SPEC.md §8): recipe quotes/runs/recipe-runs with a scripted server-side acceptance
 // verdict per (shot, take), job outputs served from loopback, and a log of every request so tests can assert "0 requests"
 // and "no provider/route/model key was sent". Request bodies for the recipe routes are checked with the same exact key sets
-// as the core (apps/api/src/http/v1.ts: quotes {workspace_id, inputs}; runs {workspace_id, inputs, max_credits, dry_run,
-// idempotency_key}); every inputs value must be a string, as the core's recipe input validator requires.
+// as the server's /v1 contract (quotes {workspace_id, inputs}; runs {workspace_id, inputs, max_credits, dry_run,
+// idempotency_key}); every inputs value must be a string, as the server's recipe input validator requires.
 import {createServer} from 'node:http';
 import {createHash} from 'node:crypto';
 import {readFileSync} from 'node:fs';
@@ -14,7 +14,7 @@ const err=(status,code,message)=>({status,body:{ok:false,error:{code,message}}})
 const routes={
  'GET /v1/pricing':()=>ok({price_version:'mock-1',unit:'credit_v1',video_credits_per_second:8}),
  // h3mv / multi_image_song is a MOCK-ONLY release and mode name: core mode names come from release manifests
- // (apps/api/src/modules/catalog/capabilities.ts); a sold mode with audio 'external' takes a song (E1).
+ // served by /v1/capabilities; a sold mode with audio 'external' takes a song (E1).
  'GET /v1/capabilities':()=>ok({schema_version:1,releases:[{alias:'h3',release_id:'h3-mock',state:'qualified',modes:[{mode:'image_to_video',duration_ms:5083,references_min:1,references_max:1,audio:'native'}]},
   {alias:'h3mv',release_id:'h3mv-mock',state:'qualified',modes:[{mode:'multi_image_song',duration_ms:10000,references_min:1,references_max:4,audio:'external'}]}]}),
  'GET /v1/me':()=>ok({workspace_id:WS,scopes:['generation:quote','billing:read']}),
@@ -43,7 +43,7 @@ const strings=inputs=>inputs&&typeof inputs==='object'&&!Array.isArray(inputs)&&
 //   outputHost: base URL put in output links; redirectFiles: /files/* answers 302 to this URL
 //   badRunId: runs answer an invalid job_id; nullSnapshot: recipe-runs answer data:null;
 //   badLinkSha: output links carry a wrong sha256; tamperFiles: /files/* flips the first byte
-// recipe-runs (★ CORE-ASKS C4 proposal): a run is visible only in the workspace that made it, and its snapshot echoes the
+// recipe-runs (★ draft server interface, SPEC §8): a run is visible only in the workspace that made it, and its snapshot echoes the
 // inputs it was run with (shot_json, plan_sha256, take) so a client can bind the verdict to one shot of one plan.
 export function start(options={}){
  const director={outcomes:{},maxUnits:40,files:{},outputHost:null,...options.director};

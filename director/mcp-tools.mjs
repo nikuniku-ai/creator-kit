@@ -2,7 +2,7 @@
 // Each tool returns the same {ok, data | error} envelope the CLI prints. Local tools (validate, lint, whitebox) need no
 // key and send nothing. take_submit spends credits: it sends at most ONE new take and returns without waiting;
 // take_status never submits. AC13: assertNoAdult() refuses any tool whose name, description or input schema carries an
-// adult marker; the general package must not contain adult tools or adult hosts (REQUIREMENTS §1.4, ai-tools plan §2.1).
+// adult marker; the general package must not contain adult tools or adult hosts; adult entry points ship as a separate package.
 import {readFileSync} from 'node:fs';
 import {Refusal,ApiError} from '../client/nikuniku-api.mjs';
 import {readJson} from './breakdown.mjs';

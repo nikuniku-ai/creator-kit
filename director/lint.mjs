@@ -12,7 +12,7 @@ const ordered=plan=>[...plan.shots].sort((a,b)=>a.order-b.order);
 const finding=(code,severity,path,message,{shot_id=null,scene_id=null,evidence=null}={})=>({code,severity,path,shot_id,scene_id,message,evidence});
 const shotPath=(plan,shot)=>`$.shots[${plan.shots.indexOf(shot)}]`;
 
-// Tokens for n-grams, decided per run of text (never per line, REVIEW-codex-p2.2 #1: one CJK character must not switch a
+// Tokens for n-grams, decided per run of text (never per line: one CJK character must not switch a
 // whole English line to character mode): each CJK, kana or hangul character is a token; any other run of letters and
 // digits is one lower-cased word. NFKC first so full-width letters and compatibility forms cannot dodge the check.
 const TOKEN=/[\u3040-\u30ff\u3400-\u9fff\uac00-\ud7af\uf900-\ufaff]|[^\s\p{P}\p{S}\u3040-\u30ff\u3400-\u9fff\uac00-\ud7af\uf900-\ufaff]+/gu;
@@ -36,7 +36,7 @@ export const RULES=[
  function charactersBeforeIntro(plan,out){
   const position=new Map();ordered(plan).forEach(s=>{if(!position.has(s.scene_id))position.set(s.scene_id,position.size);});
   const intro=new Map(plan.characters.map(c=>[c.id,position.get(c.first_scene)??Infinity]));
-  // Listed characters and speakers both count as appearing (REVIEW-codex-p2.2 #2); one finding per character per shot.
+  // Listed characters and speakers both count as appearing; one finding per character per shot.
   for(const s of ordered(plan)){
    const present=new Map();s.characters.forEach((c,i)=>{if(!present.has(c))present.set(c,`${shotPath(plan,s)}.characters[${i}]`);});
    s.dialogue.forEach((d,i)=>{if(d.speaker!==null&&!present.has(d.speaker))present.set(d.speaker,`${shotPath(plan,s)}.dialogue[${i}].speaker`);});
@@ -60,7 +60,7 @@ export const RULES=[
    if(c>ctx.similarity.threshold)out.push(finding('L004_SIMILARITY_TOO_HIGH','error',`${shotPath(plan,s)}.dialogue[${i}].text`,`dialogue repeats the source (3-gram containment ${c.toFixed(2)} > ${ctx.similarity.threshold})`,{shot_id:s.id,evidence:d.text}));});
  },
  function timeline(plan,out){
-  // Every scene switch is checked, including a return to a scene already shown (REVIEW-codex-p2.2 #3); consecutive shots
+  // Every scene switch is checked, including a return to a scene already shown; consecutive shots
   // in the same scene are one appearance.
   const scenes=new Map(plan.scenes.map(s=>[s.id,s]));let latest=-Infinity,previous=null;
   for(const s of ordered(plan)){
@@ -75,7 +75,7 @@ export const RULES=[
  // L010: similarity only counts as checked when every plan source's breakdown was given with its file hash equal to
  // plan.sources[].breakdown_sha256. A plan without sources has nothing to compare against.
  function similarityChecked(plan,out,ctx){
-  // Without the file hashes nothing proves these are the breakdowns the plan was built from (REVIEW-codex-p2.2 #5).
+  // Without the file hashes nothing proves these are the breakdowns the plan was built from.
   ctx.similarity.checked=plan.sources.every(src=>ctx.sources.some((b,i)=>b.source_id===src.source_id&&ctx.sourceSha256s?.[i]===src.breakdown_sha256));
   if(!ctx.similarity.checked)out.push(finding('L010_SIMILARITY_NOT_CHECKED','warning','$.sources','similarity to the source dialogue was not checked: pass every breakdown in sources[] with --source'));
  },
@@ -99,7 +99,7 @@ export const RULES=[
 ];
 
 // lint-report.schema.json allows 10000 findings. Beyond that, errors are kept before warnings and the last slot says how
-// many were omitted (REVIEW-codex-p2.2 #6); `passed` is decided on the full list, and an error always survives the cut.
+// many were omitted; `passed` is decided on the full list, and an error always survives the cut.
 export const MAX_FINDINGS=10000;
 function cap(all){
  if(all.length<=MAX_FINDINGS)return all;
@@ -121,7 +121,7 @@ export async function command(args){
  const sourceSha256s=(o.source??[]).map(f=>createHash('sha256').update(readFileSync(f)).digest('hex'));
  const threshold=number(o,'threshold',{min:0,max:1,fallback:0.35});
  const report=lint(plan,{sources,sourceSha256s,threshold,planSha256:createHash('sha256').update(readFileSync(file)).digest('hex')});
- // The report is checked against its own schema before it leaves (REVIEW-codex-p2.2 #6): a report we cannot read back is a bug.
+ // The report is checked against its own schema before it leaves: a report we cannot read back is a bug.
  const schema=JSON.parse(readFileSync(new URL('../schemas/lint-report.schema.json',import.meta.url),'utf8'));
  const bad=[...validate(schema,report),...semantics('lint-report',report)];
  if(bad.length)throw new Refusal('INTERNAL',`lint produced an invalid report: ${bad[0].path} ${bad[0].message}`,1);

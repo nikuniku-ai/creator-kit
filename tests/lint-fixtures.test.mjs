@@ -1,4 +1,4 @@
-// AC3 + AC4 (P2.2): A+B plan scaffold passes the schema; lint reports each planted error exactly once; dialogue copied
+// AC3 + AC4 (SPEC §3 S3–S4): A+B plan scaffold passes the schema; lint reports each planted error exactly once; dialogue copied
 // from the source is refused by the 3-gram similarity cap. Each rule has its own case so deleting a rule turns one red.
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
@@ -117,7 +117,7 @@ test('CLI: lint --source computes the breakdown sha256 for the checked flag',asy
  const r=await cli(['lint','schemas/examples/plan.ab-merge.json','--source','schemas/examples/breakdown.fixture.json']);
  assert.equal(r.code,0,r.stderr);assert.equal(r.json.data.similarity.checked,false,'fixture sha256 is not the plan\'s placeholder');
 });
-test('plan: the scaffold never copies source dialogue, characters or props (structure only, REQUIREMENTS D4)',async()=>{
+test('plan: the scaffold never copies source dialogue, characters or props (structure only)',async()=>{
  const dir=tmp(),a=join(dir,'a.json'),brief=join(dir,'brief.txt'),out=join(dir,'plan.json');
  writeFileSync(a,JSON.stringify(source));writeFileSync(brief,'改成台北雨夜。');
  const r=await cli(['plan','--a',a,'--brief',brief,'--plan-lang','ja','--project','demo-a','--out',out]);
@@ -137,7 +137,7 @@ test('plan: refuses A and B with the same source_id, an unknown plan language an
  for(const extra of [['--b',a,'--plan-lang','en'],['--plan-lang','xx'],['--plan-lang','en','--merge','shuffle']]){
   const r=await cli([...base,...extra]);assert.equal(r.code,2,extra.join(' '));assert.equal(r.err.error.code,'USAGE');}
 });
-// REVIEW-codex-p2.2 (each case is the reviewer's own counter-example)
+// Counter-examples from an independent review (each case is the reviewer's own)
 const SHAS=['a'.repeat(64),'b'.repeat(64)],BOTH=()=>[source,{...source,source_id:'src-b'}];
 test('R-p2.2 #1 blocker: an English line copied verbatim with one CJK character appended is still L004',()=>{
  const src={...source,shots:[{...source.shots[1],dialogue:[{speaker:null,text:'I finally found you at the station tonight',lang:'en'}]}]};

@@ -1,7 +1,7 @@
 // S3 (docs/director/SPEC.md §3 S3): build a plan.json SCAFFOLD from one breakdown (A) or two (A+B). It only carries
 // structure across (shot order, durations, framing, camera moves, hook positions); it never copies source dialogue,
 // characters or props, because the adaptation itself is the creator's IDE agent's job and the product only replicates
-// structure (REQUIREMENTS D4). The result is validated against plan.schema.json + semantics before it is written.
+// structure (whether a given use is lawful is for a lawyer, not this tool). The result is validated against plan.schema.json + semantics before it is written.
 import {createHash} from 'node:crypto';
 import {readFileSync} from 'node:fs';
 import {Refusal} from '../client/nikuniku-api.mjs';
@@ -29,7 +29,7 @@ export function scaffold(inputs,{brief,planLang,projectId,merge='a_then_b',maxCr
  let at=0;const hooks=[];
  const shots=merged.map(({role,shot},order)=>{
   // Hook positions follow the plan's own (clamped) durations; hook and description TEXT stay in the breakdown: they can
-  // quote the source's people, props and lines (REVIEW-codex-p2.2 #4, #7).
+  // quote the source's people, props and lines.
   const ms=clampMs(shot.end_s-shot.start_s);
   if(shot.hook)hooks.push({at_s:at/1000,text:`待改編：鉤子位置（來源 ${role}:${shot.shot_index}）`});
   at+=ms;

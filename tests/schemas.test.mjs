@@ -1,4 +1,4 @@
-// P1.1: every schema example validates, every invalid example is refused, and the validator itself enforces each keyword.
+// SPEC §2: every schema example validates, every invalid example is refused, and the validator itself enforces each keyword.
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
 import {execFile} from 'node:child_process';
@@ -34,7 +34,7 @@ for(const [name,value,kw] of [
 ])test(`validator refuses ${name}`,()=>{assert.ok(errors(value).includes(kw),JSON.stringify(errors(value)));});
 test('validator reports the JSON path of the failure',()=>{assert.equal(validate(S,{a:'ab',l:[true,1]})[0].path,'$.l[1]');});
 
-// REVIEW-codex-1 B2, M1, M2, m1, m2
+// Validator keywords and edge cases
 import {checkSchema} from '../director/jsonschema.mjs';
 test('B2: inherited names (constructor, __proto__, toString) are not declared properties',()=>{
  const s={type:'object',additionalProperties:false,properties:{a:{type:'string'}}};
@@ -65,7 +65,7 @@ test('m2: boolean schema false refuses everything',()=>{
  assert.equal(validate(false,'anything').length,1);assert.deepEqual(validate(true,'anything'),[]);
 });
 
-// REVIEW-codex-1 M4/M10/M11/m4/m5/B1: each *.sem-* example is schema-valid and refused only by its semantic rule.
+// Each *.sem-* example is schema-valid and refused only by its semantic rule.
 import {semantics} from '../director/semantics.mjs';
 test('semantic refusals: schema passes, the cross-field rule refuses',async()=>{
  const {readdirSync,readFileSync}=await import('node:fs');

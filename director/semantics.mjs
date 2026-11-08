@@ -1,4 +1,4 @@
-// Cross-field rules the JSON Schema subset cannot express (REVIEW-codex-1 M4, M10, M11, m3, m4, m5, B1 ledger part).
+// Cross-field rules the JSON Schema subset cannot express.
 // Applied after the schema everywhere a director file is read (readJson) and by scripts/validate-schemas.mjs, so a file
 // that breaks one is refused as SCHEMA_INVALID before anything else happens. Returns [{path, keyword:'semantic', message}].
 const err=(out,path,message)=>out.push({path,keyword:'semantic',message});

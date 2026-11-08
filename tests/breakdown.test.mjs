@@ -1,4 +1,4 @@
-// AC2 (P2.1): breakdown of a synthetic 3-shot video matches the human labels (count ±1, cuts within 0.5 s).
+// AC2 (SPEC §3 S2): breakdown of a synthetic 3-shot video matches the human labels (count ±1, cuts within 0.5 s).
 import {test,before} from 'node:test';
 import assert from 'node:assert/strict';
 import {readFileSync,existsSync,readdirSync} from 'node:fs';

@@ -1,4 +1,4 @@
-// AC5 (P2.4, SPEC §3 S7): every shot declares `accept` before generation. A missing key is SCHEMA_INVALID, a null block
+// AC5 (SPEC §3 S7): every shot declares `accept` before generation. A missing key is SCHEMA_INVALID, a null block
 // is ACCEPT_REQUIRED; both exit 2 and the mock /v1 receives zero requests.
 import {test,before,after} from 'node:test';
 import assert from 'node:assert/strict';

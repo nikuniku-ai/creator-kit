@@ -83,7 +83,7 @@
   },
   "server_acceptance": {
    "const": "unverified",
-   "description": "Whether nikuniku's server attested these takes. Always \"unverified\" until the server signs acceptance (CORE-ASKS C7): the ledger is a local record and a self-consistent hand-written one cannot be told apart offline. This receipt proves cut integrity only."
+   "description": "Whether nikuniku's server attested these takes. Always \"unverified\" until the server signs acceptance (SPEC §8, draft): the ledger is a local record and a self-consistent hand-written one cannot be told apart offline. This receipt proves cut integrity only."
   }
  },
  "$defs": {
