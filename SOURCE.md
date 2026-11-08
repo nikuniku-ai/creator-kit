@@ -14,3 +14,5 @@ Exported from the private service repository `hanamizukikabukijou/nikuniku-ai` a
 
 Changes are made in the service repository first and exported again; this repository adds only the README files,
 `package.json`, the mock tests and CI.
+
+The director workbench (`director/`, `schemas/`, `locales/`, `docs/director/`) is developed in this repository, not exported.

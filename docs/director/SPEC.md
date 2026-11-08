@@ -3,7 +3,7 @@ doc: creator-kit/director/2026-11-08/spec
 title: nikuniku director kit — 爆款／短劇復刻導演工作台 規格（S1–S10、CLI、MCP、錯誤碼、十四語、AC 對應）
 created: 2026-11-08T10:05:00+09:00
 updated: 2026-11-08T10:40:00+09:00（依 REVIEW-codex-1 修訂，見 REVIEW-response-1.md）
-author: claude-opus-5-5（FG 開發線，kkdeMac-mini / FG）
+author: nikuniku creator kit
 follows: fg-lane-docs/viral-remake/REQUIREMENTS.md（Studio 分支 claude/fg-recipe-test-lane @ 2bf8fdeb 副本）
 followed_by: docs/director/REVIEW-codex-1.md
 trigger: PLAN P1.1
