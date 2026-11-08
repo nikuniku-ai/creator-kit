@@ -171,6 +171,6 @@ async function main(argv){
 
 main(process.argv.slice(2)).then(code=>{process.exitCode=code;},error=>{
  if(error instanceof ApiError){process.stderr.write(JSON.stringify(error.body)+'\n');process.exitCode=1;return;}
- const refusal=error instanceof Refusal?error:new Refusal('INTERNAL',error instanceof Error&&error.code==='ENOENT'?'input file not found':'unexpected error',2);
+ const refusal=error instanceof Refusal?error:new Refusal('INTERNAL',error instanceof Error&&error.code==='ENOENT'?`file not found: ${error.path??'?'}`:'unexpected error',2);
  process.stderr.write(JSON.stringify({ok:false,error:{code:refusal.code,message:refusal.message}})+'\n');process.exitCode=refusal.exit;
 });

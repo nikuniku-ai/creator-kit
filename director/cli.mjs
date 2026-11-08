@@ -40,7 +40,7 @@ export async function runDirector(command,rest){
   return exit;
  }catch(error){
   if(error instanceof ApiError){process.stderr.write(JSON.stringify(error.body)+'\n'+render(lang,'error.API_ERROR',{message:error.body?.error?.code??''})+'\n');return 1;}
-  const r=error instanceof Refusal?error:new Refusal('INTERNAL',error instanceof Error&&error.code==='ENOENT'?'input file not found':'unexpected error',2);
+  const r=error instanceof Refusal?error:new Refusal('INTERNAL',error instanceof Error&&error.code==='ENOENT'?`file not found: ${error.path??'?'}`:'unexpected error',2);
   process.stderr.write(JSON.stringify({ok:false,error:{code:r.code,message:r.message}})+'\n'+render(lang,'error.'+r.code,{message:r.message})+'\n');
   return r.exit;
  }
