@@ -1,0 +1,1 @@
+{"schema_version": 1, "source_id": "src-a", "url": "https://example.com/watch/abc", "local_file": null, "sha256": null, "duration_ms": null, "lang": "zh-Hant", "found_by": "creator_url", "rights": {"status": "unlicensed_reference", "ref": null, "note": "結構參考；畫面與台詞不得進生成"}, "usable_for": "generation", "created_at": "2026-11-08T10:00:00+09:00"}

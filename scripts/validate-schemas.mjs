@@ -6,20 +6,25 @@ import {readdirSync,readFileSync} from 'node:fs';
 import {join,dirname} from 'node:path';
 import {fileURLToPath} from 'node:url';
 import {validate} from '../director/jsonschema.mjs';
+import {semantics} from '../director/semantics.mjs';
 
 const root=join(dirname(fileURLToPath(import.meta.url)),'..','schemas');
 const load=p=>JSON.parse(readFileSync(p,'utf8'));
 const schemas=Object.fromEntries(readdirSync(root).filter(f=>f.endsWith('.schema.json')).map(f=>[f.slice(0,-'.schema.json'.length),load(join(root,f))]));
 const report={ok:true,valid:[],invalid:[],problems:[]};
+for(const [n,sch] of Object.entries(schemas)){try{validate(sch,null);}catch(e){report.problems.push({schema:n,problem:e.message});}}
 const nameOf=f=>Object.keys(schemas).sort((a,b)=>b.length-a.length).find(n=>f.startsWith(n+'.'));
-for(const [dir,expectValid] of [[join(root,'examples'),true],[join(root,'examples','invalid'),false]]){
- for(const f of readdirSync(dir).filter(f=>f.endsWith('.json')).sort()){
+// Every JSON file under examples/ (recursively, REVIEW-codex-1 M3); anything under examples/invalid/ must be refused.
+const files=readdirSync(join(root,'examples'),{recursive:true}).filter(f=>f.endsWith('.json')).sort();
+for(const rel of files){
+ const expectValid=!rel.split(/[\\/]/).includes('invalid'),f=rel.split(/[\\/]/).pop();
+ {
   const name=nameOf(f);
   if(!name){report.problems.push({file:f,problem:'no schema for this example'});continue;}
-  let errors;try{errors=validate(schemas[name],load(join(dir,f)));}catch(e){report.problems.push({file:f,problem:e.message});continue;}
-  if(expectValid&&errors.length)report.problems.push({file:f,problem:'expected valid',errors:errors.slice(0,5)});
-  else if(!expectValid&&!errors.length)report.problems.push({file:'invalid/'+f,problem:'expected refusal but it validated'});
-  else (expectValid?report.valid:report.invalid).push(f);
+  let errors;try{const v=load(join(root,'examples',rel));errors=validate(schemas[name],v);if(!errors.length)errors=semantics(name,v);}catch(e){report.problems.push({file:f,problem:e.message});continue;}
+  if(expectValid&&errors.length)report.problems.push({file:rel,problem:'expected valid',errors:errors.slice(0,5)});
+  else if(!expectValid&&!errors.length)report.problems.push({file:rel,problem:'expected refusal but it validated'});
+  else (expectValid?report.valid:report.invalid).push(rel);
  }
 }
 for(const name of Object.keys(schemas))if(!report.valid.some(f=>f.startsWith(name+'.')))report.problems.push({schema:name,problem:'no valid example'});

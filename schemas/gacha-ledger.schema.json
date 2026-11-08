@@ -8,6 +8,7 @@
   "schema_version",
   "plan_sha256",
   "project_id",
+  "workspace_id",
   "credits",
   "shots"
  ],
@@ -58,12 +59,14 @@
      },
      "status": {
       "enum": [
+       "not_started",
+       "in_progress",
        "adopted",
        "stopped_same_failure",
        "exhausted",
        "budget_stopped",
        "acceptance_unavailable",
-       "not_started"
+       "acceptance_timeout"
       ]
      },
      "adopted": {
@@ -103,12 +106,16 @@
        "additionalProperties": false,
        "required": [
         "take",
+        "idempotency_key",
+        "quote_id",
+        "quoted_units",
         "run_id",
         "job_id",
         "verdict",
         "failure_class",
         "route",
-        "charged_units"
+        "charged_units",
+        "output_sha256"
        ],
        "properties": {
         "take": {
@@ -116,17 +123,41 @@
          "minimum": 1,
          "maximum": 10
         },
-        "run_id": {
+        "idempotency_key": {
          "$ref": "#/$defs/id"
         },
-        "job_id": {
+        "quote_id": {
          "$ref": "#/$defs/id"
+        },
+        "quoted_units": {
+         "type": "integer",
+         "minimum": 0
+        },
+        "run_id": {
+         "oneOf": [
+          {
+           "$ref": "#/$defs/id"
+          },
+          {
+           "type": "null"
+          }
+         ]
+        },
+        "job_id": {
+         "oneOf": [
+          {
+           "$ref": "#/$defs/id"
+          },
+          {
+           "type": "null"
+          }
+         ]
         },
         "verdict": {
          "enum": [
+          "pending",
           "passed",
           "failed",
-          "pending",
           "unavailable"
          ]
         },
@@ -135,7 +166,7 @@
           "string",
           "null"
          ],
-         "maxLength": 64
+         "pattern": "^[a-z][a-z0-9_]{0,63}$"
         },
         "route": {
          "type": [
@@ -150,12 +181,25 @@
           "null"
          ],
          "minimum": 0
+        },
+        "output_sha256": {
+         "oneOf": [
+          {
+           "$ref": "#/$defs/sha256"
+          },
+          {
+           "type": "null"
+          }
+         ]
         }
        }
       }
      }
     }
    }
+  },
+  "workspace_id": {
+   "$ref": "#/$defs/id"
   }
  },
  "$defs": {

@@ -11,7 +11,9 @@
   "tool",
   "duration_s",
   "transcript_source",
-  "shots"
+  "shots",
+  "usable_for",
+  "source_manifest_sha256"
  ],
  "properties": {
   "schema_version": {
@@ -224,6 +226,24 @@
      }
     }
    }
+  },
+  "usable_for": {
+   "enum": [
+    "analysis_only",
+    "generation"
+   ],
+   "description": "From source.json; analysis_only when no source manifest is given"
+  },
+  "source_manifest_sha256": {
+   "oneOf": [
+    {
+     "$ref": "#/$defs/sha256"
+    },
+    {
+     "type": "null"
+    }
+   ],
+   "description": "sha256 of the source.json bytes, null when none was given"
   }
  },
  "$defs": {

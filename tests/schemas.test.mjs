@@ -33,3 +33,47 @@ for(const [name,value,kw] of [
  ['oneOf',{a:'ab',o:true},'oneOf'],['type array',{a:'ab',nul:3},'type'],
 ])test(`validator refuses ${name}`,()=>{assert.ok(errors(value).includes(kw),JSON.stringify(errors(value)));});
 test('validator reports the JSON path of the failure',()=>{assert.equal(validate(S,{a:'ab',l:[true,1]})[0].path,'$.l[1]');});
+
+// REVIEW-codex-1 B2, M1, M2, m1, m2
+import {checkSchema} from '../director/jsonschema.mjs';
+test('B2: inherited names (constructor, __proto__, toString) are not declared properties',()=>{
+ const s={type:'object',additionalProperties:false,properties:{a:{type:'string'}}};
+ for(const k of ['constructor','toString','hasOwnProperty'])assert.ok(validate(s,JSON.parse(`{"${k}":{"provider":"x"}}`)).some(e=>e.keyword==='additionalProperties'),k);
+ assert.ok(validate(s,JSON.parse('{"__proto__":{"provider":"x"}}')).some(e=>e.keyword==='additionalProperties'),'__proto__');
+});
+test('B2: the real plan schema refuses shots[0].constructor',async()=>{
+ const {readFileSync}=await import('node:fs');
+ const plan=JSON.parse(readFileSync('schemas/examples/plan.ab-merge.json','utf8'));plan.shots[0].constructor={provider:'external'};
+ assert.ok(validate(JSON.parse(readFileSync('schemas/plan.schema.json','utf8')),plan).length>0);
+});
+test('M1: unknown keywords anywhere in a schema are refused at load, even where no example reaches',()=>{
+ assert.throws(()=>checkSchema({type:'object',properties:{a:{type:'array',items:{type:'string',format:'email'}}}}),/format/);
+ assert.throws(()=>checkSchema({$defs:{unused:{minimum:'x'}}}),/minimum/);
+ assert.throws(()=>checkSchema({pattern:'('}),/pattern/);
+ assert.throws(()=>checkSchema({$ref:'#/$defs/missing'}),/missing/);
+ assert.doesNotThrow(()=>checkSchema(S));
+});
+test('M2: constraints next to $ref are applied too',()=>{
+ const s={$defs:{t:{type:'string'}},properties:{a:{$ref:'#/$defs/t',maxLength:1}},type:'object'};
+ assert.ok(validate(s,{a:'long'}).some(e=>e.keyword==='maxLength'));
+});
+test('m1: const/enum compare JSON values regardless of key order; JSON pointer escapes resolve',()=>{
+ assert.deepEqual(validate({const:{a:1,b:2}},{b:2,a:1}),[]);
+ assert.deepEqual(validate({$defs:{'a/b':{type:'string'}},$ref:'#/$defs/a~1b'},'x'),[]);
+});
+test('m2: boolean schema false refuses everything',()=>{
+ assert.equal(validate(false,'anything').length,1);assert.deepEqual(validate(true,'anything'),[]);
+});
+
+// REVIEW-codex-1 M4/M10/M11/m4/m5/B1: each *.sem-* example is schema-valid and refused only by its semantic rule.
+import {semantics} from '../director/semantics.mjs';
+test('semantic refusals: schema passes, the cross-field rule refuses',async()=>{
+ const {readdirSync,readFileSync}=await import('node:fs');
+ const files=readdirSync('schemas/examples/invalid').filter(f=>f.includes('.sem-'));
+ assert.ok(files.length>=14,String(files.length));
+ for(const f of files){
+  const name=f.split('.sem-')[0],v=JSON.parse(readFileSync('schemas/examples/invalid/'+f,'utf8'));
+  assert.deepEqual(validate(JSON.parse(readFileSync(`schemas/${name}.schema.json`,'utf8')),v),[],f+' should pass the schema');
+  assert.ok(semantics(name,v).length>0,f+' should be refused by semantics');
+ }
+});

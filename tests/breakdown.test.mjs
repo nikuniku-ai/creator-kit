@@ -50,3 +50,16 @@ test('an out-of-range threshold is refused',async()=>{
  const r=await cli(['breakdown',video,'--out',join(tmp(),'b.json'),'--threshold','1.5']);
  assert.equal(r.code,2);assert.equal(r.err.error.code,'USAGE');
 });
+test('M4: without source.json the breakdown is analysis-only; with one it carries its manifest hash and rights',async()=>{
+ const dir=tmp(),out=join(dir,'b.json'),src=join(dir,'source.json');
+ assert.equal((await cli(['breakdown',video,'--out',out])).code,0);
+ let b=JSON.parse(readFileSync(out,'utf8'));assert.equal(b.usable_for,'analysis_only');assert.equal(b.source_manifest_sha256,null);
+ const {writeFileSync}=await import('node:fs');const {createHash}=await import('node:crypto');
+ const manifest=JSON.stringify({schema_version:1,source_id:'own-1',url:null,local_file:video,sha256:b.source_sha256,duration_ms:3500,lang:'zh-Hant',found_by:'creator_file',rights:{status:'owned',ref:'creator-owned',note:null},usable_for:'generation',created_at:'2026-11-08T10:00:00Z'});
+ writeFileSync(src,manifest);
+ const r=await cli(['breakdown',video,'--out',out,'--source',src]);assert.equal(r.code,0,r.stderr);
+ b=JSON.parse(readFileSync(out,'utf8'));assert.equal(b.usable_for,'generation');assert.equal(b.source_id,'own-1');
+ assert.equal(b.source_manifest_sha256,createHash('sha256').update(manifest).digest('hex'));
+ writeFileSync(src,manifest.replace(b.source_sha256,'0'.repeat(64)));
+ assert.equal((await cli(['breakdown',video,'--out',out,'--source',src])).code,2,'a manifest for another video is refused');
+});

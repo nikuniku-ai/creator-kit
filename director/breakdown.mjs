@@ -10,6 +10,7 @@ import {promisify} from 'node:util';
 import {Refusal} from '../client/nikuniku-api.mjs';
 import {parse,need,number} from './cli.mjs';
 import {validate} from './jsonschema.mjs';
+import {semantics} from './semantics.mjs';
 import {LOCALES} from './i18n.mjs';
 const run=promisify(execFile);
 export const VERSION='0.1.0';
@@ -48,7 +49,7 @@ export function parseSrt(text){
  }).filter(Boolean);
 }
 
-export async function breakdown(video,{threshold=0.3,minShot=0.4,framesDir=null,srt=null,lang='en',sourceId=null}={}){
+export async function breakdown(video,{threshold=0.3,minShot=0.4,framesDir=null,srt=null,lang='en',sourceId=null,usableFor='analysis_only',manifestSha256=null}={}){
  if(!existsSync(video))throw new Refusal('USAGE',`video not found: ${video}`);
  const [d,cuts,digest]=await Promise.all([duration(video),detectCuts(video,threshold),sha256File(video)]);
  const shots=cutsToShots(cuts,d,minShot).map((s,i)=>({shot_index:i,...s,keyframe:null,framing:'unknown',camera_move:'unknown',characters:[],dialogue:[],lighting:null,props:[],hook:null,description:null,filled_by:'detector'}));
@@ -63,14 +64,14 @@ export async function breakdown(video,{threshold=0.3,minShot=0.4,framesDir=null,
  }
  return {schema_version:1,source_id:sourceId??'src-'+digest.slice(0,12),source_sha256:digest,
   tool:{name:'nikuniku-director',version:VERSION,scene_threshold:threshold,min_shot_s:minShot},
-  duration_s:round(d),transcript_source:srt?'srt':'none',shots};
+  duration_s:round(d),transcript_source:srt?'srt':'none',usable_for:usableFor,source_manifest_sha256:manifestSha256,shots};
 }
 
 export function writeJson(path,value){const tmp=path+'.tmp-'+process.pid;writeFileSync(tmp,JSON.stringify(value,null,1)+'\n');renameSync(tmp,path);}
 export function readJson(path,schemaName){
  let value;try{value=JSON.parse(readFileSync(path,'utf8'));}catch(e){throw new Refusal(e.code==='ENOENT'?'USAGE':'SCHEMA_INVALID',e.code==='ENOENT'?`file not found: ${path}`:`${path} is not JSON`);}
  if(schemaName){const schema=JSON.parse(readFileSync(new URL(`../schemas/${schemaName}.schema.json`,import.meta.url),'utf8'));
-  const errors=validate(schema,value);if(errors.length)throw new Refusal('SCHEMA_INVALID',`${path}: `+errors.slice(0,5).map(e=>`${e.path} ${e.message}`).join('; '));}
+  let errors=validate(schema,value);if(!errors.length)errors=semantics(schemaName,value);if(errors.length)throw new Refusal('SCHEMA_INVALID',`${path}: `+errors.slice(0,5).map(e=>`${e.path} ${e.message}`).join('; '));}
  return value;
 }
 
@@ -83,7 +84,9 @@ export async function command(args){
  const source=o.source?readJson(o.source,'source'):null;
  const lang=source?.lang??o['srt-lang'];
  if(srt!==null&&!LOCALES.includes(lang))throw new Refusal('USAGE',`--srt needs --srt-lang (one of ${LOCALES.join(' ')}) or --source with a lang`);
- const b=await breakdown(video,{threshold,minShot,framesDir:o.frames??null,srt,lang,sourceId:source?.source_id});
+ // Without a source manifest the rights are unknown, so the breakdown is analysis-only (REVIEW-codex-1 M4).
+ const b=await breakdown(video,{threshold,minShot,framesDir:o.frames??null,srt,lang,sourceId:source?.source_id,usableFor:source?.usable_for??'analysis_only',
+  manifestSha256:o.source?createHash('sha256').update(readFileSync(o.source)).digest('hex'):null});
  if(source?.sha256&&source.sha256!==b.source_sha256)throw new Refusal('USAGE','the video does not match source.json sha256');
  writeJson(out,b);
  return {result:{ok:true,data:{file:out,shots:b.shots.length,source_sha256:b.source_sha256}}};

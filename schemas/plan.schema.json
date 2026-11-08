@@ -152,10 +152,78 @@
      },
      "names": {
       "type": "object",
-      "additionalProperties": {
-       "type": "string",
-       "minLength": 1,
-       "maxLength": 100
+      "additionalProperties": false,
+      "properties": {
+       "en": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 100
+       },
+       "zh-Hant": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 100
+       },
+       "zh-Hans": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 100
+       },
+       "ja": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 100
+       },
+       "ko": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 100
+       },
+       "vi": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 100
+       },
+       "id": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 100
+       },
+       "th": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 100
+       },
+       "es": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 100
+       },
+       "pt-BR": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 100
+       },
+       "fr": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 100
+       },
+       "de": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 100
+       },
+       "ar": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 100
+       },
+       "hi": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 100
+       }
       }
      },
      "description": {

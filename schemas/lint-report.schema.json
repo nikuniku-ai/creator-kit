@@ -27,7 +27,8 @@
    "required": [
     "max",
     "threshold",
-    "n"
+    "n",
+    "checked"
    ],
    "properties": {
     "max": {
@@ -42,6 +43,9 @@
     },
     "n": {
      "const": 3
+    },
+    "checked": {
+     "type": "boolean"
     }
    }
   },
