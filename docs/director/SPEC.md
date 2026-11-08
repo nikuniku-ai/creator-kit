@@ -109,7 +109,9 @@ tests/*.test.mjs   tests/mock-api.mjs（擴充）
 - 指令：`nikuniku plan --a <breakdown.json> [--b <breakdown.json>] --brief <brief.txt> --plan-lang <lang> --project <id> --out plan.json`（`--lang` 保留給訊息語言）
 - 產出 plan **骨架**：A 的鏡（與 B 的鏡，A＋B 時依 `--merge a_then_b|interleave`，預設 `a_then_b`）轉成 `shots[]`，`source_shot:"A:<i>"`；每鏡 `action` 預填「待改編：<原鏡描述或時長>」、`accept:null`、`rating:"general"`；`sources[]` 記兩份 breakdown 的 sha256 與 `usable_for`。
 - 真正的改編文字（新人物、新台詞、補景）由創作者的 IDE agent 改寫 plan，**不經我們的伺服器、不收費**；需要我們起草（例如 explicit 鏡）時走既有 `nikuniku compose`（`/v1/prompts/draft`，收費，先報價）。
+- 骨架**不搬**原片台詞、人物、道具（`dialogue/characters/props_*` 皆空），只帶結構：鏡序、時長、景別、運鏡、鉤子位置（`bible.hooks[].at_s` 依合併後時間軸）。`budget.max_credits` 預設 0（`--max-credits` 改），未設就無法 `shoot`。
 - A＋B 合併的劇情一致性由 S4 lint 把關。
+- lint 的 `similarity.checked`：plan 的每個 `sources[]` 都有對應 `--source`（`source_id` 相同，且 CLI 下檔案 sha256＝`breakdown_sha256`）才為 true；plan 無 sources 時視為 true（沒有可比對的原片）。
 
 ### S4 邏輯自檢
 - 指令：`nikuniku lint <plan.json> [--source <breakdown.json> ...] [--threshold 0.35] [--out lint-report.json]`；有 `error` 時 exit 3，只有 warning 時 exit 0。
