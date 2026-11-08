@@ -37,5 +37,7 @@
  "done.shoot": "Syuting selesai",
  "done.assemble": "Film digabung",
  "done.run": "Proses selesai",
- "done.mv": "Draf MV siap"
+ "done.mv": "Draf MV siap",
+ "done.verify": "Tanda terima diperiksa: film, EDL, dan take cocok",
+ "notice.NOT_VERIFIED_BY_NIKUNIKU": "Belum diverifikasi oleh nikuniku: take berasal dari catatan lokal tanpa tanda tangan server; ini hanya membuktikan keutuhan gabungan"
 }

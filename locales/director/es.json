@@ -37,5 +37,7 @@
  "done.shoot": "Rodaje terminado",
  "done.assemble": "Película montada",
  "done.run": "Ejecución terminada",
- "done.mv": "Borrador de MV listo"
+ "done.mv": "Borrador de MV listo",
+ "done.verify": "Recibo comprobado: la película, el EDL y las tomas coinciden",
+ "notice.NOT_VERIFIED_BY_NIKUNIKU": "No verificado por nikuniku: las tomas provienen de un registro local sin firma del servidor; solo prueba la integridad del montaje"
 }

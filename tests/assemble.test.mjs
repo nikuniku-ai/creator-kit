@@ -96,3 +96,34 @@ test('AC11: a ledger that adopts a take the server did not pass is refused (SCHE
   const r=await assemble(x);assert.equal(r.code,2,`${why}: ${r.stderr}`);assert.equal(r.err.error.code,'SCHEMA_INVALID',why);
   assert.equal(existsSync(join(x.dir,'out')),false,why);}
 });
+
+// AC11 (ACCEPT-1e5e347 FAIL; CORE-ASKS C7): a ledger that is consistent from end to end but was never issued by the server
+// cannot be told apart offline. Until the server signs acceptance, every cut is labelled "not verified by nikuniku" — in the
+// receipt, in assemble/verify/run output and in the human stderr line — and nothing ever reports it as server-accepted.
+const NOT_VERIFIED=/not verified by nikuniku/i;
+function forgedProject(){
+ return project({ledgerEdit:l=>{for(const s of l.shots){for(const t of s.takes){t.job_id=t.run_id=`never_server_${s.shot_id}_${t.take}`;}
+  s.adopted.job_id=s.adopted.run_id=`never_server_${s.shot_id}_${s.adopted.take}`;}}});
+}
+test('AC11: a self-consistent ledger the server never issued cuts, but assemble labels it not verified by nikuniku',async()=>{
+ const x=forgedProject();const r=await assemble(x);assert.equal(r.code,0,r.stderr);
+ assert.equal(r.json.data.server_accepted,false);assert.equal(r.json.data.server_acceptance,'unverified');
+ assert.match(r.stderr,NOT_VERIFIED);
+ const receipt=JSON.parse(readFileSync(join(x.dir,'out','qa-receipt.json'),'utf8'));valid('qa-receipt',receipt);
+ assert.equal(receipt.server_acceptance,'unverified');
+});
+test('AC11: verify checks integrity but never reports the cut as server-accepted',async()=>{
+ const x=forgedProject();assert.equal((await assemble(x)).code,0);const rPath=join(x.dir,'out','qa-receipt.json');
+ const v=await cli(['assemble','--verify',rPath,'--takes',x.takes]);assert.equal(v.code,0,v.stderr);
+ assert.equal(v.json.data.server_accepted,false);assert.equal(v.json.data.server_acceptance,'unverified');
+ assert.match(v.stderr,NOT_VERIFIED);assert.doesNotMatch(v.stderr,/Film assembled/,'verify does not claim it assembled anything');
+ const zh=await cli(['assemble','--verify',rPath,'--lang','zh-Hant']);assert.equal(zh.code,0);assert.match(zh.stderr,/未經 nikuniku 驗收/);
+});
+test('AC11: a receipt edited to claim server acceptance is refused by verify, not reported as accepted',async()=>{
+ const x=forgedProject();assert.equal((await assemble(x)).code,0);const rPath=join(x.dir,'out','qa-receipt.json');
+ for(const claim of ['verified','signed',true]){
+  const receipt=JSON.parse(readFileSync(rPath,'utf8'));writeFileSync(rPath+'.claim.json',JSON.stringify({...receipt,server_acceptance:claim}));
+  const v=await cli(['assemble','--verify',rPath+'.claim.json']);assert.notEqual(v.code,0,String(claim));assert.equal(v.json?.data?.server_accepted,undefined,String(claim));}
+ const receipt=JSON.parse(readFileSync(rPath,'utf8'));delete receipt.server_acceptance;writeFileSync(rPath+'.none.json',JSON.stringify(receipt));
+ assert.notEqual((await cli(['assemble','--verify',rPath+'.none.json'])).code,0,'a receipt without the label is not trusted either');
+});

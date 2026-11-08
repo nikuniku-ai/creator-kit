@@ -37,5 +37,7 @@
  "done.shoot": "拍攝結束",
  "done.assemble": "成片已拼接",
  "done.run": "全流程結束",
- "done.mv": "MV 草稿已就緒"
+ "done.mv": "MV 草稿已就緒",
+ "done.verify": "收據已核對：成片、EDL 與鏡頭一致",
+ "notice.NOT_VERIFIED_BY_NIKUNIKU": "未經 nikuniku 驗收：鏡頭來自沒有伺服器簽章的本機紀錄，只證明拼接完整性"
 }

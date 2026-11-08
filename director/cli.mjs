@@ -33,10 +33,10 @@ export async function runDirector(command,rest){
  try{
   const i=rest.indexOf('--lang');if(i>=0)lang=pickLang(rest[i+1]);else lang=pickLang(undefined);
   const args=i>=0?[...rest.slice(0,i),...rest.slice(i+2)]:rest;
-  const {exit=0,result}=await handlers[command](args);
+  const {exit=0,result,done=command,notice}=await handlers[command](args);
   process.stdout.write(JSON.stringify(result)+'\n');
   if(exit!==0&&result?.error)process.stderr.write(JSON.stringify({ok:false,error:result.error})+'\n'+render(lang,'error.'+result.error.code,{message:result.error.message})+'\n');
-  else if(exit===0)process.stderr.write(render(lang,'done.'+command)+'\n');
+  else if(exit===0)process.stderr.write(render(lang,'done.'+done)+'\n'+(notice?render(lang,'notice.'+notice)+'\n':''));
   return exit;
  }catch(error){
   if(error instanceof ApiError){process.stderr.write(JSON.stringify(error.body)+'\n'+render(lang,'error.API_ERROR',{message:error.body?.error?.code??''})+'\n');return 1;}

@@ -37,5 +37,7 @@
  "done.shoot": "Shooting finished",
  "done.assemble": "Film assembled",
  "done.run": "Run finished",
- "done.mv": "MV draft ready"
+ "done.mv": "MV draft ready",
+ "done.verify": "Receipt checked: film, EDL and takes match",
+ "notice.NOT_VERIFIED_BY_NIKUNIKU": "Not verified by nikuniku: the takes come from a local ledger without a server signature; this proves cut integrity only"
 }

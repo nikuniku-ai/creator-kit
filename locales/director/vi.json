@@ -37,5 +37,7 @@
  "done.shoot": "Đã quay xong",
  "done.assemble": "Đã ghép phim",
  "done.run": "Đã chạy xong",
- "done.mv": "Bản nháp MV đã sẵn sàng"
+ "done.mv": "Bản nháp MV đã sẵn sàng",
+ "done.verify": "Đã kiểm tra biên nhận: phim, EDL và các take khớp nhau",
+ "notice.NOT_VERIFIED_BY_NIKUNIKU": "Chưa được nikuniku xác nhận: các take lấy từ sổ ghi cục bộ không có chữ ký máy chủ; chỉ chứng minh tính toàn vẹn khi ghép"
 }

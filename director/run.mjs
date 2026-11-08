@@ -14,5 +14,5 @@ export async function command(args){
  if(shot.exit)return shot;
  const cut=await assemble({positional:o.positional,ledger,takes,out});
  if(cut.exit)return cut;
- return {result:{ok:true,data:{shoot:shot.result.data,assemble:cut.result.data}}};
+ return {result:{ok:true,data:{shoot:shot.result.data,assemble:cut.result.data}},notice:cut.notice};
 }

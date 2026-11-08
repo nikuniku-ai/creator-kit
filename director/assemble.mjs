@@ -3,6 +3,10 @@
 // for that take. Hard cuts with stream copy (ffmpeg concat demuxer, -c copy): no dissolve, no frame interpolation, no
 // re-encode. The receipt proves "this film was cut from these files by this EDL"; it does NOT prove server acceptance
 // (the ledger is a local record; SPEC TL;DR 3). `--verify` recomputes every hash it names.
+// AC11 (ACCEPT-1e5e347; CORE-ASKS C7): a self-consistent ledger the server never issued cannot be told apart offline, so
+// every receipt and every assemble/verify result says server_acceptance "unverified" and server_accepted false, and the
+// human line says "not verified by nikuniku" (tests/assemble.test.mjs AC11). Nothing here may ever report true until the
+// server signs acceptance and this file checks that signature.
 import {createHash} from 'node:crypto';
 import {readFileSync,existsSync,mkdirSync,writeFileSync,renameSync,unlinkSync} from 'node:fs';
 import {join,dirname,relative,resolve,isAbsolute} from 'node:path';
@@ -21,6 +25,8 @@ function checked(name,value){
  return value;
 }
 const rel=(from,to)=>relative(dirname(from),to)||'.';
+export const UNVERIFIED={server_acceptance:'unverified',server_accepted:false};
+export const NOTICE='NOT_VERIFIED_BY_NIKUNIKU';
 
 export async function assemble(o){
  const planFile=o.positional[0];if(!planFile)throw new Refusal('USAGE','assemble needs a plan path (or --verify <receipt>)');
@@ -54,9 +60,9 @@ export async function assemble(o){
  const film=readFileSync(out);
  const receipt=checked('qa-receipt',{schema_version:1,kind:'nikuniku.director.qa_receipt',output_file:rel(receiptFile,out),output_sha256:sha(film),output_bytes:film.length,
   edl_file:rel(receiptFile,edlFile),edl_sha256:fileSha(edlFile),takes:picks.map(p=>({shot_id:p.shot.id,job_id:p.take.job_id,sha256:p.sha,verdict:'passed'})),
-  created_at:new Date().toISOString().replace(/\.\d{3}Z$/,'Z'),plan_sha256:planSha});
+  created_at:new Date().toISOString().replace(/\.\d{3}Z$/,'Z'),plan_sha256:planSha,server_acceptance:UNVERIFIED.server_acceptance});
  writeJson(receiptFile,receipt);
- return {result:{ok:true,data:{file:out,edl:edlFile,receipt:receiptFile,output_sha256:receipt.output_sha256,total_ms:at}}};
+ return {result:{ok:true,data:{file:out,edl:edlFile,receipt:receiptFile,output_sha256:receipt.output_sha256,total_ms:at,...UNVERIFIED}},notice:NOTICE};
 }
 
 export function verify(receiptPath,{takes}={}){
@@ -84,7 +90,7 @@ export async function command(args){
  if(o.verify!==undefined){
   const problems=verify(o.verify,{takes:o.takes});
   if(problems.length)return {exit:3,result:{ok:false,error:{code:'RECEIPT_MISMATCH',message:problems.join('; ')},data:{problems}}};
-  return {result:{ok:true,data:{receipt:o.verify,checked_takes:o.takes!==undefined}}};
+  return {result:{ok:true,data:{receipt:o.verify,checked_takes:o.takes!==undefined,...UNVERIFIED}},done:'verify',notice:NOTICE};
  }
  return assemble(o);
 }

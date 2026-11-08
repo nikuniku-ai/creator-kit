@@ -14,7 +14,8 @@
   "edl_sha256",
   "takes",
   "created_at",
-  "plan_sha256"
+  "plan_sha256",
+  "server_acceptance"
  ],
  "properties": {
   "schema_version": {
@@ -79,6 +80,10 @@
   },
   "plan_sha256": {
    "$ref": "#/$defs/sha256"
+  },
+  "server_acceptance": {
+   "const": "unverified",
+   "description": "Whether nikuniku's server attested these takes. Always \"unverified\" until the server signs acceptance (CORE-ASKS C7): the ledger is a local record and a self-consistent hand-written one cannot be told apart offline. This receipt proves cut integrity only."
   }
  },
  "$defs": {

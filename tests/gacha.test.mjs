@@ -219,6 +219,8 @@ test('D1: run --out into a folder that does not exist yet creates it and finishe
  const r=await cli(['run',f,'--out',out],env());
  assert.equal(r.code,0,r.stderr);assert.equal(existsSync(out),true);
  assert.equal(existsSync(join(dir,'never','created','gacha-ledger.json')),true);
+ // AC11 (ACCEPT-1e5e347; CORE-ASKS C7): even a run straight from the server ledger is labelled until acceptance is signed.
+ assert.equal(r.json.data.assemble.server_accepted,false);assert.match(r.stderr,/not verified by nikuniku/i);
  mock.reset();const x=planFile(),ledger=join(x.dir,'new-dir','ledger.json');
  const s=await cli(['shoot',x.f,'--ledger',ledger,'--shot','s1'],env());
  assert.equal(s.code,0,s.stderr);readLedger(ledger);
