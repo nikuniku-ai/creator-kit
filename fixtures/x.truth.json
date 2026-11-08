@@ -1,0 +1,1 @@
+{"note":"Synthetic fixture made by scripts/make-fixtures.mjs: testsrc2 1.0 s, then smptebars 1.5 s, then mandelbrot 1.0 s (64x36, 10 fps). Human labels: three shots.","shots":[{"start_s":0,"end_s":1.0},{"start_s":1.0,"end_s":2.5},{"start_s":2.5,"end_s":3.5}]}

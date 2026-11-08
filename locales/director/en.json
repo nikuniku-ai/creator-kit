@@ -1,0 +1,5 @@
+{
+ "dir": "ltr",
+ "error.USAGE": "Check the command: {message}",
+ "error.SCHEMA_INVALID": "The file does not match its schema: {message}"
+}

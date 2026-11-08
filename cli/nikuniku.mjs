@@ -8,6 +8,7 @@
 import {readFileSync} from 'node:fs';
 import {publishDownload} from './publish-download.mjs';
 import {createHash} from 'node:crypto';
+import {COMMANDS as DIRECTOR,runDirector} from '../director/cli.mjs';
 import {Refusal,ApiError,apiBase,apiKey,validId,call,paths,uploadPng,uploadAudio,pickMode} from '../client/nikuniku-api.mjs';
 
 const USAGE=`nikuniku <command> [options]
@@ -127,6 +128,7 @@ async function generate(api,o){
 async function main(argv){
  const [command,...rest]=argv;
  if(command==='help'||command==='--help'){process.stdout.write(USAGE+'\n');return 0;}
+ if(DIRECTOR.has(command))return runDirector(command,rest); // director kit (docs/director/SPEC.md); not part of the core export
  const o=options(rest),api=apiBase(process.env.NIKUNIKU_API_BASE);
  let result;
  switch(command){

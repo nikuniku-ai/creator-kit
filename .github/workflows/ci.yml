@@ -9,5 +9,6 @@ jobs:
         with: { node-version: 22 }
       - uses: actions/setup-python@v5
         with: { python-version: '3.12' }
+      - run: ffmpeg -version >/dev/null 2>&1 || (sudo apt-get update && sudo apt-get install -y --no-install-recommends ffmpeg)
       - run: npm install --no-audit --no-fund
       - run: npm test
