@@ -44,7 +44,7 @@ grep -hE "^\| \[DK-" docs/director/SPEC.md | grep -E "spec|needs_core"
 |---|---|
 | `director/*.mjs`、`schemas/*.schema.json`、CLI 子指令、MCP 工具、locale 檔 | 影片模型、配方參數、**每鏡驗收判定**、分級與路由、起草、帳本與計費 |
 
-- 客戶端唯一的對外主機是 `NIKUNIKU_API_BASE`（預設 `https://api.nikuniku.ai`；https，只有 loopback 可用 http，沿用既有 `apiBase()`）。成片下載的簽名連結只接受：與 API 同主機，或 API 為 `*.nikuniku.ai` 時的 `*.nikuniku.ai`（https）。其他主機一律 `HOST_REFUSED`，什麼都不寫（AC1）。
+- 客戶端唯一的對外主機是 `NIKUNIKU_API_BASE`（預設 `https://api.nikuniku.ai`；https，只有 loopback 可用 http，沿用既有 `apiBase()`）。成片下載的簽名連結只接受：與 API 同主機且同連接埠，或 API 為 `*.nikuniku.ai` 時的 `*.nikuniku.ai`（https、預設埠）。其他主機一律 `HOST_REFUSED`，什麼都不寫（AC1）。
 - 所有請求 `redirect:'manual'`：任何 3xx 都不跟隨、當錯誤處理（不會把 key 帶到別處）；下載簽名連結**不帶** API key。
 - 不送任何 provider 參數；`plan.provider_constraints.via` 只能是 `nikuniku_v1`（schema `const`）。
 - 參考片：只做結構復刻（節奏、鏡頭語法、鉤子位置），不重用原片畫面與台詞。`source.rights.status ∈ {unlicensed_reference, unknown}` 的來源 `usable_for` 必為 `analysis_only`；lint L004 擋台詞抄襲。**著作權判斷需律師覆核／Yves 決定（REQUIREMENTS D4）**，本工具不宣稱合規。
@@ -55,9 +55,9 @@ grep -hE "^\| \[DK-" docs/director/SPEC.md | grep -E "spec|needs_core"
 ```
 director/          實作（node 標準庫；唯一外部依賴仍是既有 @modelcontextprotocol/server）
   jsonschema.mjs   schema 子集驗證器
-  breakdown.mjs    S2   plan.mjs S3   lint.mjs S4   whitebox.mjs S6
-  shoot.mjs        S7–S9（含純函式 gacha.mjs）   assemble.mjs S10   mv.mjs  MV 打包
-  net.mjs          主機白名單   i18n.mjs  訊息   cli.mjs  子指令進入點   mcp-tools.mjs  MCP 工具
+  source.mjs S1   breakdown.mjs S2   plan.mjs S3   lint.mjs S4   whitebox.mjs S6
+  shoot.mjs        S7–S9（含純函式 decide／judge／projectShot）   assemble.mjs S10   run.mjs   mv.mjs  MV 打包
+  net.mjs          take 下載主機白名單   semantics.mjs 語意層   i18n.mjs  訊息   cli.mjs  子指令進入點   mcp-tools.mjs  MCP 工具＋成人守衛
 schemas/           *.schema.json、examples/、examples/invalid/
 scripts/validate-schemas.mjs
 locales/director/<lang>.json   十四語
@@ -163,8 +163,11 @@ tests/*.test.mjs   tests/mock-api.mjs（擴充）
   1. 報價成功 → 寫入 take `{idempotency_key, quote_id, quoted_units, run_id:null, job_id:null, verdict:"pending"}`；
   2. run 回來 → 填 `run_id／job_id`；
   3. 輪詢到判定 → 填 `verdict／failure_class／route／charged_units／output_sha256`。
-  重啟時：`run_id` 為 null 的 take 以**同一把** idempotency_key 再送 run（伺服端依既有合約回原 job，不會多扣）；有 `run_id` 的只讀快照，不重送。
-- **輪詢**：每 `NIKUNIKU_POLL_MS`（預設 5000）讀一次，總時限 `--timeout`（預設 1800 秒）。終態對應：`succeeded`＋`acceptance.verdict∈{passed,failed}` → 照判定；`failed`／`cancelled` → `verdict:"failed"`、`failure_class:"run_failed"`／`"run_cancelled"`；`succeeded` 而沒有 `acceptance` 欄位，或 verdict 不在 `{passed,failed,pending}`，或 `passed` 卻沒有合法 `output_sha256`（無法綁定成片 bytes） → `unavailable`（fail closed）；`acceptance.verdict:"pending"` 或非終態 → 繼續等，逾時 → 鏡 `acceptance_timeout`、exit 1 `ACCEPTANCE_TIMEOUT`，不採用。伺服端 `failed` 而 `failure_class` 為空或不合 `^[a-z][a-z0-9_]{0,63}$` → 記為 `unspecified`（同樣計入同類失敗）；run 本身 `failed`／`cancelled` 記 `run_failed`／`run_cancelled`。
+  重啟時：`run_id` 為 null 的 take 以**同一把** idempotency_key 再送 run（伺服端依既有合約回原 job，不會多扣），但重送前同樣檢查預算上限；有 `run_id` 的只讀快照，不重送。既有 take 的冪等鍵必須等於以目前 workspace／recipe 重算的值，否則 `LEDGER_MISMATCH`（換 recipe 不會把舊 take 送去新配方）。
+  鎖：鎖檔記 pid；該 pid 已不存在（崩潰、Ctrl-C）即接手；SIGINT／SIGTERM 會清鎖。ledger 在取得鎖之後才讀。
+  伺服端回的 id 或快照不合法 → `INVALID_RESPONSE` exit 1（已送過請求，所以不是 exit 2），ledger 不寫入壞值。
+  結束碼依最嚴重的問題，錯誤訊息列出全部問題（`also <CODE>: …`），`data.problems` 為 code 清單。
+- **輪詢**：每 `NIKUNIKU_POLL_MS`（預設 5000）讀一次，總時限 `--timeout`（預設 1800 秒）。終態對應：`succeeded`＋`acceptance.verdict∈{passed,failed}` → 照判定；`failed`／`cancelled` → `verdict:"failed"`、`failure_class:"run_failed"`／`"run_cancelled"`；`succeeded` 而沒有 `acceptance` 欄位，或 verdict 不在 `{passed,failed,pending}`，或 `passed` 卻沒有合法 `output_sha256`（無法綁定成片 bytes），或 `route` 不是字串／超過 64 個 code point（ledger 無法原樣記錄） → `unavailable`（fail closed）；`acceptance.verdict:"pending"` 或非終態 → 繼續等，逾時 → 鏡 `acceptance_timeout`、exit 1 `ACCEPTANCE_TIMEOUT`，不採用。伺服端 `failed` 而 `failure_class` 為空或不合 `^[a-z][a-z0-9_]{0,63}$` → 記為 `unspecified`（同樣計入同類失敗）；run 本身 `failed`／`cancelled` 記 `run_failed`／`run_cancelled`。
 - 抽卡規則（純函式 `director/gacha.mjs#decide`，AC7）：
   1. 依 take 順序，**第一個** `verdict:"passed"` 的 take 採用；之後不再拍。
   2. 同一 `failure_class` 累計失敗達 `budget.max_same_failure`（預設且上限 3）→ `stopped_same_failure`，停。
@@ -176,6 +179,7 @@ tests/*.test.mjs   tests/mock-api.mjs（擴充）
 
 ### S10 拼接
 - 指令：`nikuniku assemble <plan.json> --ledger gacha-ledger.json --takes <dir> --out final.mp4`；`nikuniku assemble --verify qa-receipt.json [--takes <dir>]`
+- `edl.json`、`qa-receipt.json` 預設寫在 `--out` 同目錄（`--edl`／`--receipt` 可改）；EDL 的 `file` 相對於 EDL 所在目錄。
 - 只接受 ledger 中 `status:"adopted"` 的鏡，檔案為 `<takes>/<shot_id>.mp4`（`shoot --download` 或 `run` 下載；下載時比對伺服端 sha256）。任一鏡未採用 → exit 3 `TAKE_NOT_ACCEPTED`。
 - `edl.json`（依 `order`）→ `ffmpeg -f concat -c copy`（只做硬切，不溶接、不補幀；REQUIREMENTS 與 preflight §3 步驟六）→ `qa-receipt.json`：`output_sha256` 為成片 sha256、`edl_sha256` 為 edl.json bytes 的 sha256、每段 take sha256。
 - 每段 take 檔的 sha256 必須等於 ledger 中伺服端回的 `output_sha256`（下載時已比對），否則 exit 3 `TAKE_FILE_MISMATCH`。
@@ -183,10 +187,10 @@ tests/*.test.mjs   tests/mock-api.mjs（擴充）
 - `--verify`：重算成片 sha256 與 bytes、EDL sha256；EDL 的每段 shot／job／sha256 與 receipt.takes 一一相符；給 `--takes` 時再重算每段 take 檔 sha256。任一不符 → exit 3 `RECEIPT_MISMATCH`（AC8）。**receipt 證明的是「這支成片由這些檔案依此 EDL 拼成」，不證明伺服端驗收**（見 TL;DR 3）。
 
 ### run（S7→S10 一次走完）
-- `nikuniku run <plan.json> --out final.mp4 [--max-credits n]`：先檢查 API key（AC11），再 lint（有 error 停）→ shoot（含下載）→ assemble。
+- `nikuniku run <plan.json> --out final.mp4 [--max-credits n] [--source …] [--ledger <f>] [--takes <dir>]`：先檢查 API key（AC11），再 shoot（其送出前檢查含 accept、sources、lint）→ 下載 → assemble；ledger 與 takes 預設在 `--out` 同目錄。任一步非 0 即停並回該步的錯誤。
 
 ### MV（AC9）
-- `nikuniku mv --image <png> [--image …≤4] --audio <wav|mp3> --prompt <txt> [--max-credits n] [--wait --out f]`：沿用既有 `generate` 的 E1 路徑（多圖＋歌），差別只在「歌必填、至少一張圖」先檢查；草稿欄位名 `reference_audio_id`。
+- `nikuniku mv --image <png> [--image …≤4] --audio <wav|mp3> --prompt <txt> [--max-credits n] [--wait --out f]`：沿用既有 `generate` 的 E1 路徑（多圖＋歌），差別只在「歌必填、至少一張圖、有 prompt」在任何請求前先檢查；草稿欄位名 `reference_audio_id`。`mv` 掛在核心 CLI 的 `generate` 路徑上，錯誤輸出是核心格式（stderr 單行 JSON，沒有第二行本地化訊息）。mock 的 MV 模式名 `multi_image_song` 是 mock 專用：真實模式名由 release manifest 決定，客戶端依 `audio:'external'` 從 `/v1/capabilities` 選。
 - MCP `nikuniku_mv_draft`：上傳圖與歌、依能力表選模式、存草稿並報價，**不送出**（送出仍用既有 `nikuniku_submit`，先報價後花錢）。
 
 ## 4. CLI 子指令總表
@@ -240,6 +244,10 @@ tests/*.test.mjs   tests/mock-api.mjs（擴充）
 | `LEDGER_LOCKED` | 1 | 另一個程序正在用同一份 ledger |
 | `LEDGER_MISMATCH` | 2 | ledger 的 plan_sha256／workspace 與目前不符 |
 | `ACCEPTANCE_TIMEOUT` | 1 | 時限內伺服端沒給出判定 |
+| `NETWORK_ERROR` | 1 | 連不到 API |
+| `INVALID_RESPONSE` | 1 | API 回應不是預期格式 |
+| `DOWNLOAD_FAILED` | 1 | take 下載非 200（含 3xx：不跟隨轉址） |
+| `INTERNAL` | 1／2 | 未預期錯誤；或本工具即將寫出不合 schema 的檔案而拒寫 |
 
 ## 6. MCP 工具（加在既有 `nikuniku` server，同一份 key）
 
@@ -248,17 +256,18 @@ tests/*.test.mjs   tests/mock-api.mjs（擴充）
 | `nikuniku_director_validate` | 否 | 無 | 依 schema 名驗證本機 JSON 檔 |
 | `nikuniku_director_lint` | 否 | 無 | S4，回 lint-report |
 | `nikuniku_director_whitebox` | 否 | 寫一個 SVG 檔 | S6 |
-| `nikuniku_director_take_submit` | 是 | **預留點數** | S9 單一 take：檢查 accept→報價→預算→run；回 run_id。長任務不佔住呼叫 |
-| `nikuniku_director_take_status` | 是 | 寫 ledger | 讀快照與判定、套抽卡規則，回 `next: adopt|retry|stop` |
+| `nikuniku_director_take_submit` | 是 | **預留點數** | S9 單一 take：檢查 accept／sources／lint→報價→預算（`max_credits` 必填）→run→輪詢一次即返回；一次呼叫最多送 1 個新 take |
+| `nikuniku_director_take_status` | 是 | 寫 ledger | 讀快照與判定、套抽卡規則，回每鏡 `next: wait|retry|resend|stop`；**永不送出**（連上次失敗的 run 也不重送，resend 交給 take_submit） |
 | `nikuniku_mv_draft` | 是 | 上傳、存草稿 | MV：圖＋歌→草稿＋報價，不送出 |
 
-守衛（AC13）：server 建立時檢查全部工具名稱、描述與 schema 字串，含成人主機或成人工具字樣（`adult`、`nsfw`、`porn`、`18+`、`r18`、`hentai`）即拒絕啟動。成人入口屬另一套件（ai-tools 計畫 §2.1，C5）。
+守衛（AC13）：server 建立時（`createNikunikuMcpServer`／`toolList`）檢查全部工具名稱、描述與 input schema 字串，含成人主機或成人工具字樣（`adult`、`nsfw`、`porn`、`18+`、`r18`、`r-18`、`hentai`、`xxx`、`erotic`）即拋 `ADULT_TOOL_REFUSED`、拒絕啟動。本機工具（validate／lint／whitebox）不需 key、不送任何請求。成人入口屬另一套件（ai-tools 計畫 §2.1，C5）。
 
 ## 7. 十四語
 
 - 檔案：`locales/director/<lang>.json`，lang＝`en zh-Hant zh-Hans ja ko vi id th es pt-BR fr de ar hi`；每檔同一組鍵（`error.<CODE>`、`done.<command>`、`dir`）；`ar` 的 `dir` 為 `rtl`，其餘 `ltr`。
 - 語言決定：`--lang` > `NIKUNIKU_LANG` > `LC_ALL`／`LANG` 前綴對應 > `en`；不在清單 → `en`。
-- 機器輸出（stdout JSON、stderr 第一行 JSON、錯誤 code）不翻譯，任何語言下 byte 相同。
+- 機器輸出（stdout JSON、stderr 第一行 JSON、錯誤 code）不翻譯，任何語言下 byte 相同。成功時 stderr 只有一行本地化 `done.<command>`。
+- `tests/locales.test.mjs` 從程式碼抓出所有可能的錯誤碼（`Refusal('X'`、`code:'X'`、SPEC §5 表），每個都必須在十四語都有 `error.X`。
 - 翻譯品質：機器起草，**未委託人工審校**（與 locale-registry 的 `human_review: not commissioned` 一致），不宣稱母語審過。
 
 ## 8. 伺服端契約（mock `/v1` 實作；★ 為對核心的提案）
