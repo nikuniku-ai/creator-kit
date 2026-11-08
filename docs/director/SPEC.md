@@ -140,6 +140,8 @@ tests/*.test.mjs   tests/mock-api.mjs（擴充）
 ### S6 白膜
 - 指令：`nikuniku whitebox <plan.json> --shot <id> --out <shot.svg>`（或 `--dir <dir>` 輸出全部有 `layout` 與 `camera` 的鏡）。
 - 實作：場景 `layout.boxes`（軸對齊長方體）＋鏡頭 `camera{position, look_at, fov_deg}` → 針孔透視投影、背面剔除、由遠到近畫（painter）。SVG 根元素帶 `data-faces`（畫出的面數）與 `data-forward`（相機前向單位向量，三位小數），每個面 `<polygon data-box data-face>`。
+- `--dir` 回 `{files, skipped:[{shot_id, reason: no_camera|no_scene|no_layout}]}`；`--shot` 指到畫不了的鏡 → exit 2 `USAGE`，不寫檔。
+- 限制（照實寫）：任一角落在近平面（0.01）之後的面整面略過、不裁切；互相穿插的方塊不分割（painter 的已知限制）。
 - 不搬 Blender 依賴；需要 HED／ControlNet 的線稿由伺服端配方處理。
 
 ### S7 分鏡與每鏡驗收規格
