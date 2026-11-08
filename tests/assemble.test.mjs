@@ -1,4 +1,4 @@
-// AC8 (P2.6, SPEC §3 S10): only adopted takes whose file matches the server sha256 are cut together (hard cuts, stream
+// AC8 (SPEC §3 S10): only adopted takes whose file matches the server sha256 are cut together (hard cuts, stream
 // copy); the QaReceipt binds the output sha256, the EDL sha256 and every take; --verify fails on a single changed byte.
 import {test,before,after,beforeEach} from 'node:test';
 import assert from 'node:assert/strict';
@@ -111,7 +111,7 @@ test('AC11: a ledger that adopts a take the server did not pass is refused (SCHE
   assert.equal(existsSync(join(x.dir,'out')),false,why);}
 });
 
-// AC11 (ACCEPT-ae8c4ef FAIL; Studio ruling 2026-11-08): assemble needs a valid key and, before cutting, asks the server
+// AC11: assemble needs a valid key and, before cutting, asks the server
 // (GET /v1/recipe-runs/{run_id}) about every adopted take: passed, and the server's output sha256 equals the file.
 // A self-consistent ledger the server never issued, a take the server did not pass, a sha256 the server does not report,
 // or no key → refused with its own code and nothing is written. verify only proves cut integrity: never "accepted".
@@ -155,7 +155,7 @@ test('AC11: a ledger the server confirms is cut; every adopted run was checked i
  assert.doesNotMatch(r.stderr,NOT_VERIFIED);
 });
 
-// AC11 (independent verifier on 2cee4a8): the bytes the server confirmed must be the bytes that are cut, and the run the
+// AC11: the bytes the server confirmed must be the bytes that are cut, and the run the
 // server confirmed must be this shot's run of this shot's recipe.
 const framemd5=f=>execFileSync('ffmpeg',['-hide_banner','-loglevel','error','-i',f,'-map','0:v','-f','framemd5','-'],{encoding:'utf8'}).split('\n').filter(l=>l&&!l.startsWith('#')).map(l=>l.split(',').pop().trim());
 test('AC11: a take swapped while the server is being asked is not what gets cut (the hashed bytes are the cut bytes)',async()=>{
@@ -187,7 +187,7 @@ test('AC11: the server run must be this take: another run id/job id, another rec
  for(const [why,make] of cases){mock.reset();const x=make();const r=await assemble(x);
   assert.equal(r.code,3,`${why}: ${r.stderr}`);assert.equal(r.err.error.code,'SERVER_RUN_MISMATCH',why);assert.equal(existsSync(join(x.dir,'out')),false,why);}
 });
-// AC11 (second independent verifier on 7d5f042): the server's run must have been made for THIS shot of THIS plan in THIS
+// AC11: the server's run must have been made for THIS shot of THIS plan in THIS
 // workspace. Real runs of another shot or another plan are refused, and so is a snapshot that does not say (fail closed).
 function swapRuns(x){const l=JSON.parse(readFileSync(x.ledgerFile,'utf8')),[a,b]=l.shots,ta=a.takes.find(t=>t.take===a.adopted.take),tb=b.takes.find(t=>t.take===b.adopted.take);
  for(const k of ['run_id','job_id','output_sha256'])[ta[k],tb[k]]=[tb[k],ta[k]];

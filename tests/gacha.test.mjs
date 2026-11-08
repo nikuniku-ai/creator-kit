@@ -1,4 +1,4 @@
-// AC7 + AC6 client half (P2.5, SPEC §3 S8–S9): the first take the SERVER passed is adopted; three failures of one class
+// AC7 + AC6 client half (SPEC §3 S8–S9): the first take the SERVER passed is adopted; three failures of one class
 // stop the shot; a take that did not pass is never adopted (no "best of the failures"); no provider/route/model is sent
 // and the server's route is recorded as is. Also: budget stop, restart without double runs, ledger lock and mismatch.
 import {test,before,after,beforeEach} from 'node:test';
@@ -158,7 +158,7 @@ test('--takes downloads each adopted take and checks it against the server sha25
  const dl=mock.requests.find(q=>q.path.startsWith('/files/'));assert.equal(dl.authorization,null,'the signed link is fetched without the API key');
 });
 
-// ── independent verifier findings on b682ae0 (each reproduced first-hand before the fix) ──
+// ── counter-examples from an independent review (each reproduced before the fix) ──
 const runsTo=r=>mock.requests.filter(q=>q.method==='POST'&&q.path===`/v1/recipes/${r}/runs`).length;
 test('V1: resending a take whose run call failed is budget-checked too (a lower --max-credits stops it, exit 4)',async()=>{
  mock.director.failRunOnce=true;const {f,ledger}=planFile();
@@ -212,14 +212,14 @@ test('V5: Ctrl-C while waiting for a verdict removes the lock (exit 130)',async(
  assert.equal(code,130);assert.equal(existsSync(ledger+'.lock'),false);
 });
 
-// ── D1 (ACCEPT-deb8cc0): an output folder that does not exist yet is created, not reported as a missing input ──
+// ── an output folder that does not exist yet is created, not reported as a missing input ──
 test('D1: run --out into a folder that does not exist yet creates it and finishes; shoot --ledger likewise',async()=>{
  const t=makeFixtures().takes;mock.director.files={s1:join(t,'s1.mp4'),s2:join(t,'s2.mp4')};
  const {f,dir}=planFile();const out=join(dir,'never','created','final.mp4');
  const r=await cli(['run',f,'--out',out],env());
  assert.equal(r.code,0,r.stderr);assert.equal(existsSync(out),true);
  assert.equal(existsSync(join(dir,'never','created','gacha-ledger.json')),true);
- // AC11 (ACCEPT-ae8c4ef; Studio ruling): run's assemble step re-asks the server about every adopted run before cutting.
+ // AC11: run's assemble step re-asks the server about every adopted run before cutting.
  assert.equal(r.json.data.assemble.server_accepted,true);assert.equal(r.json.data.assemble.server_acceptance,'checked_at_assemble');
  const checks=mock.requests.filter(q=>q.method==='GET'&&q.path.startsWith('/v1/recipe-runs/')).map(q=>q.path);
  assert.ok(checks.filter(p=>p==='/v1/recipe-runs/job_s1_1').length>=2,'s1 polled by shoot and checked again by assemble');

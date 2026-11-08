@@ -1,4 +1,4 @@
-// AC9 (P2.8, SPEC §3 MV): the existing MV flow (1–4 images + a song) is reachable from the same CLI and MCP server.
+// AC9 (SPEC §3 MV): the existing MV flow (1–4 images + a song) is reachable from the same CLI and MCP server.
 // `mv` checks "a song and at least one image" before anything is sent; the draft names the song as reference_audio_id;
 // the MCP tool saves the draft and quotes but never submits.
 import {test,before,after,beforeEach} from 'node:test';

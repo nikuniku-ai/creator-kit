@@ -1,4 +1,4 @@
-// AC1 (P2.7, SPEC §1): the director commands talk only to NIKUNIKU_API_BASE. A take's signed link must be on the API's
+// AC1 (SPEC §1): the director commands talk only to NIKUNIKU_API_BASE. A take's signed link must be on the API's
 // host (or *.nikuniku.ai when the API is there); anything else is HOST_REFUSED with nothing written; links are fetched
 // without the key and redirects are never followed.
 import {test,before,after,beforeEach} from 'node:test';

@@ -1,15 +1,15 @@
 // Director kit: a small JSON Schema validator (the subset docs/director/SPEC.md §2 uses), standard library only.
-// Why not a package: the kit's only dependency is the MCP server SDK and REQUIREMENTS asks for node standard library;
+// Why not a package: the kit's only dependency is the MCP server SDK and the kit keeps to the node standard library;
 // the schemas use type/required/properties/additionalProperties/enum/const/pattern/min*/max*/items/oneOf/$ref only.
 // validate() returns [{path, keyword, message}]; an empty list means valid. checkSchema() walks the WHOLE schema before
-// any value is checked (REVIEW-codex-1 M1) and throws on an unknown keyword, a bad keyword argument, an invalid regex or
+// any value is checked and throws on an unknown keyword, a bad keyword argument, an invalid regex or
 // an unresolved $ref, so a schema can never silently stop checking something it appears to check.
 const KNOWN=new Set(['$schema','$id','$defs','title','description','type','required','properties','additionalProperties','enum','const','pattern','minLength','maxLength','minimum','maximum','items','minItems','maxItems','oneOf','$ref','examples']);
 const TYPES=new Set(['null','boolean','object','array','number','integer','string']);
 const kind=v=>v===null?'null':Array.isArray(v)?'array':Number.isInteger(v)?'integer':typeof v;
 const own=(o,k)=>o!==null&&typeof o==='object'&&Object.hasOwn(o,k);
 function typeOk(t,v){const k=kind(v);return t===k||t==='number'&&(k==='integer'||k==='number');}
-// JSON value equality independent of object key order (REVIEW-codex-1 m1).
+// JSON value equality independent of object key order.
 export function equal(a,b){
  if(a===b)return true;const ka=kind(a);if(ka!==kind(b)||ka!=='array'&&ka!=='object')return false;
  if(ka==='array')return a.length===b.length&&a.every((x,i)=>equal(x,b[i]));
@@ -48,7 +48,7 @@ function check(root,s,v,path,out){
  if(s===true)return;
  if(s===false)return out.push({path,keyword:'false',message:'no value is allowed here'});
  const fail=(keyword,message)=>out.push({path,keyword,message});
- // A $ref and its siblings both apply (REVIEW-codex-1 M2).
+ // A $ref and its siblings both apply.
  if(own(s,'$ref'))check(root,resolve(root,s.$ref),v,path,out);
  if(own(s,'type')){const ts=Array.isArray(s.type)?s.type:[s.type];if(!ts.some(t=>typeOk(t,v)))return fail('type',`expected ${ts.join('|')}, got ${kind(v)}`);}
  if(own(s,'const')&&!equal(s.const,v))fail('const',`expected ${JSON.stringify(s.const)}`);
@@ -71,7 +71,7 @@ function check(root,s,v,path,out){
  if(kind(v)==='object'){
   for(const r of s.required??[])if(!Object.hasOwn(v,r))fail('required',`missing ${r}`);
   for(const [k,item] of Object.entries(v)){
-   // Own properties only: inherited names such as constructor or __proto__ are not declared fields (REVIEW-codex-1 B2).
+   // Own properties only: inherited names such as constructor or __proto__ are not declared fields.
    if(own(s.properties,k))check(root,s.properties[k],item,`${path}.${k}`,out);
    else if(s.additionalProperties===false)out.push({path:`${path}.${k}`,keyword:'additionalProperties',message:'not allowed'});
    else if(own(s,'additionalProperties'))check(root,s.additionalProperties,item,`${path}.${k}`,out);

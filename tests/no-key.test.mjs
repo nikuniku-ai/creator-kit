@@ -1,6 +1,6 @@
-// AC11 (P2.7, SPEC §9): without an API key everything that only PREPARES runs locally (source, breakdown, plan, lint,
+// AC11 (SPEC §9): without an API key everything that only PREPARES runs locally (source, breakdown, plan, lint,
 // whitebox); every command that would produce media or ask for a verdict (shoot, run, mv) exits 2 API_KEY_REQUIRED and
-// sends nothing. A key the server rejects produces no film either. Precise assertions instead of REQUIREMENTS' "test $? -ne 0".
+// sends nothing. A key the server rejects produces no film either. Precise assertions: a bare "exit code is not 0" would also pass on any crash.
 import {test,before,after,beforeEach} from 'node:test';
 import assert from 'node:assert/strict';
 import {readFileSync,writeFileSync,existsSync} from 'node:fs';

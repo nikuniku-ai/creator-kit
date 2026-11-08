@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// P1.1 (docs/director/SPEC.md §2): validate every schemas/examples/<name>.<case>.json against schemas/<name>.schema.json,
+// docs/director/SPEC.md §2: validate every schemas/examples/<name>.<case>.json against schemas/<name>.schema.json,
 // and require every schemas/examples/invalid/<name>.<case>.json to be refused. Prints one JSON report; exit 0 only when
 // all valid examples pass, all invalid ones fail, and every schema has at least one valid example.
 import {readdirSync,readFileSync} from 'node:fs';
@@ -14,7 +14,7 @@ const schemas=Object.fromEntries(readdirSync(root).filter(f=>f.endsWith('.schema
 const report={ok:true,valid:[],invalid:[],problems:[]};
 for(const [n,sch] of Object.entries(schemas)){try{validate(sch,null);}catch(e){report.problems.push({schema:n,problem:e.message});}}
 const nameOf=f=>Object.keys(schemas).sort((a,b)=>b.length-a.length).find(n=>f.startsWith(n+'.'));
-// Every JSON file under examples/ (recursively, REVIEW-codex-1 M3); anything under examples/invalid/ must be refused.
+// Every JSON file under examples/ (recursively); anything under examples/invalid/ must be refused.
 const files=readdirSync(join(root,'examples'),{recursive:true}).filter(f=>f.endsWith('.json')).sort();
 for(const rel of files){
  const expectValid=!rel.split(/[\\/]/).includes('invalid'),f=rel.split(/[\\/]/).pop();

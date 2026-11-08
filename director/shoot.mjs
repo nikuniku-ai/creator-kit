@@ -1,6 +1,6 @@
 // S7–S9 (docs/director/SPEC.md §3 S7, S8, S9): shoot every shot of a plan through the nikuniku /v1 recipe routes and keep
 // a failure ledger. The client only DECLARES acceptance (shot.accept); the verdict comes from the server
-// (snapshot.acceptance.verdict, a CORE-ASKS C4 proposal that today exists only in the mock). Rules (AC7):
+// (snapshot.acceptance.verdict, part of the draft server interface in SPEC §8; today only the mock serves it). Rules (AC7):
 //   - the first take the server passed is adopted and the shot stops;
 //   - max_same_failure failures of one class stop the shot; max_takes ends it;
 //   - failed / pending / unavailable takes are NEVER adopted — there is no "best of the failures".
@@ -104,7 +104,7 @@ export async function shoot(o){
  const pre=preflight(o);if(pre.refused)return pre.refused;
  const {key,api,plan,planSha,shots,ledgerPath,cap,wait}=pre;
  // The ledger's folder may not exist yet (run derives it from --out); create it here, after every local check passed,
- // so the O_EXCL lock below does not fail with ENOENT and get reported as a missing input file (D1, ACCEPT-deb8cc0).
+ // so the O_EXCL lock below does not fail with ENOENT and get reported as a missing input file.
  mkdirSync(dirname(ledgerPath),{recursive:true});
  const lock=ledgerPath+'.lock';
  const take=()=>{const fd=openSync(lock,'wx');writeSync(fd,String(process.pid));closeSync(fd);};
@@ -142,7 +142,7 @@ export async function shoot(o){
    const runBody=t=>({workspace_id:ws,inputs:inputs(t.take),max_credits:t.quoted_units,dry_run:false,idempotency_key:t.idempotency_key});
    const apply=d=>{entry.status=d.status;entry.adopted=d.adopted;};
    // Each take's key binds workspace, recipe, plan, shot and take: a ledger take made under another recipe is never sent
-   // to this one (independent verifier on b682ae0). Checked before this shot sends anything.
+   // to this one. Checked before this shot sends anything.
    for(const t of entry.takes)if(t.idempotency_key!==idempotencyKey(ws,recipe,planSha,shot.id,t.take))
     throw new Refusal('LEDGER_MISMATCH',`take ${t.take} of ${shot.id} was made for another recipe or workspace; use the same --recipe or a new --ledger`);
    for(;;){
@@ -162,7 +162,7 @@ export async function shoot(o){
     if(t.run_id===null){
      // A resend may spend (if the first call never reached the server), so it counts against maxNewTakes like a new take.
      if(d.next==='resend'){if(newTakes>=maxNew)break;
-      // A resend may spend, so it is held to the current limit like a new take (independent verifier on b682ae0).
+      // A resend may spend, so it is held to the current limit like a new take.
       if(ledger.credits.quoted_total>cap){entry.status='budget_stopped';save();outcome.budget={shot:shot.id,quote:t.quoted_units,before:ledger.credits.quoted_total-t.quoted_units};break;}
       newTakes++;}
      const run=(await req('POST',`/v1/recipes/${q(recipe)}/runs`,runBody(t))).data;

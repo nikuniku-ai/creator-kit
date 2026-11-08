@@ -84,7 +84,7 @@ export async function command(args){
  const source=o.source?readJson(o.source,'source'):null;
  const lang=source?.lang??o['srt-lang'];
  if(srt!==null&&!LOCALES.includes(lang))throw new Refusal('USAGE',`--srt needs --srt-lang (one of ${LOCALES.join(' ')}) or --source with a lang`);
- // Without a source manifest the rights are unknown, so the breakdown is analysis-only (REVIEW-codex-1 M4).
+ // Without a source manifest the rights are unknown, so the breakdown is analysis-only.
  const b=await breakdown(video,{threshold,minShot,framesDir:o.frames??null,srt,lang,sourceId:source?.source_id,usableFor:source?.usable_for??'analysis_only',
   manifestSha256:o.source?createHash('sha256').update(readFileSync(o.source)).digest('hex'):null});
  if(source?.sha256&&source.sha256!==b.source_sha256)throw new Refusal('USAGE','the video does not match source.json sha256');
