@@ -18,7 +18,7 @@ schema_version: 1
 2. 一個 project 一份 `plan.json`（欄位沿用 `11-agent-engineering-and-integrations.md` §6），bible／screenplay／gaps／layout／shot list 都是它的分段，不另立平行格式。
 3. 每鏡在生成前就寫好 `accept`；`shoot` 沒有 `accept` 的鏡**不送出**；採用與否只看伺服端回的 `acceptance.verdict`，本客戶端的程式不採用未通過的 take（`tests/gacha.test.mjs` 守）。**但 ledger 與 QaReceipt 是本機紀錄，使用者可以改；它們不是伺服端驗收的證明**。能防偽的只有伺服端：只對通過的 take 發下載連結、並簽發驗收證明（§8 ★提案）。
 4. 伺服端驗收欄位（`acceptance`、`route`）是**對核心的提案**（CORE-ASKS C2/C4），目前只在 mock `/v1` 存在；真 API 沒有這兩欄時，`shoot` 一律停在 `ACCEPTANCE_UNAVAILABLE`（不採用、不猜）。
-5. 驗收：`npm test`（AC1–AC9、AC11–AC13）＋ `node scripts/validate-schemas.mjs`；AC6、AC10 需要核心 C1–C4 上線後在 staging 重跑。
+5. 驗收：`npm test`（AC1–AC5、AC7–AC9、AC11–AC13，AC6 只含客戶端半）＋ `node scripts/validate-schemas.mjs`。**AC6、AC10：等待核心**（C1–C4 未上線、無 staging key），本客戶端無法驗，不列為通過；上線後在 staging 重跑（§9）。
 
 ## 0. 狀態表
 
@@ -183,11 +183,12 @@ tests/*.test.mjs   tests/mock-api.mjs（擴充）
 - 只接受 ledger 中 `status:"adopted"` 的鏡，檔案為 `<takes>/<shot_id>.mp4`（`shoot --download` 或 `run` 下載；下載時比對伺服端 sha256）。任一鏡未採用 → exit 3 `TAKE_NOT_ACCEPTED`。
 - `edl.json`（依 `order`）→ `ffmpeg -f concat -c copy`（只做硬切，不溶接、不補幀；REQUIREMENTS 與 preflight §3 步驟六）→ `qa-receipt.json`：`output_sha256` 為成片 sha256、`edl_sha256` 為 edl.json bytes 的 sha256、每段 take sha256。
 - 每段 take 檔的 sha256 必須等於 ledger 中伺服端回的 `output_sha256`（下載時已比對），否則 exit 3 `TAKE_FILE_MISMATCH`。
+- 無 key 也可 assemble（AC11 2026-11-08 釐清：拼接不生成新內容）。此時「伺服器紀錄」在本機只有 ledger（shoot 依伺服端回應寫入）；讀入時的 ledger 語意檢查會拒絕把未通過或無判定的 take 標成採用（`SCHEMA_INVALID`）。**限制**：一份前後自洽、但整份由人手寫的 ledger，離線無法與真伺服端比對——要防這種偽造，需要伺服端簽發的驗收證明（§8 ★提案，等待核心）。
 - receipt 帶 `edl_file`（相對於 receipt 所在目錄）、`output_file`（同）、`plan_sha256`。
 - `--verify`：重算成片 sha256 與 bytes、EDL sha256；EDL 的每段 shot／job／sha256 與 receipt.takes 一一相符；給 `--takes` 時再重算每段 take 檔 sha256。任一不符 → exit 3 `RECEIPT_MISMATCH`（AC8）。**receipt 證明的是「這支成片由這些檔案依此 EDL 拼成」，不證明伺服端驗收**（見 TL;DR 3）。
 
 ### run（S7→S10 一次走完）
-- `nikuniku run <plan.json> --out final.mp4 [--max-credits n] [--source …] [--ledger <f>] [--takes <dir>]`：先檢查 API key（AC11），再 shoot（其送出前檢查含 accept、sources、lint）→ 下載 → assemble；ledger 與 takes 預設在 `--out` 同目錄。任一步非 0 即停並回該步的錯誤。
+- `nikuniku run <plan.json> --out final.mp4 [--max-credits n] [--source …] [--ledger <f>] [--takes <dir>]`：先檢查 API key（AC11），再 shoot（其送出前檢查含 accept、sources、lint）→ 下載 → assemble；ledger 與 takes 預設在 `--out` 同目錄；該目錄不存在時，shoot 在本機檢查全部通過後、取 ledger 鎖之前建立它（ACCEPT-deb8cc0 D1）。任一步非 0 即停並回該步的錯誤。
 
 ### MV（AC9）
 - `nikuniku mv --image <png> [--image …≤4] --audio <wav|mp3> --prompt <txt> [--max-credits n] [--wait --out f]`：沿用既有 `generate` 的 E1 路徑（多圖＋歌），差別只在「歌必填、至少一張圖、有 prompt」在任何請求前先檢查；草稿欄位名 `reference_audio_id`。`mv` 掛在核心 CLI 的 `generate` 路徑上，錯誤輸出是核心格式（stderr 單行 JSON，沒有第二行本地化訊息）。mock 的 MV 模式名 `multi_image_song` 是 mock 專用：真實模式名由 release manifest 決定，客戶端依 `audio:'external'` 從 `/v1/capabilities` 選。
@@ -286,21 +287,22 @@ tests/*.test.mjs   tests/mock-api.mjs（擴充）
 | AC | 測試檔 | 一句指令 |
 |---|---|---|
 | P1.1 | `tests/schemas.test.mjs` | `node scripts/validate-schemas.mjs` |
-| AC1 | `tests/network.test.mjs` | `node --test tests/network.test.mjs` |
+| AC1 | `tests/network.test.mjs` | `node --test tests/network.test.mjs`（含 2026-11-08 釐清：API 在 `api.nikuniku.ai`、連結在 `media.nikuniku.ai` 的整段 shoot，fetch 攔截不連外） |
 | AC2 | `tests/breakdown.test.mjs`、`tests/check-breakdown.mjs` | `node cli/nikuniku.mjs breakdown fixtures/x.mp4 --out b.json && node tests/check-breakdown.mjs b.json fixtures/x.truth.json` |
 | AC3 AC4 | `tests/lint-fixtures.test.mjs` | `node --test tests/lint-fixtures.test.mjs` |
 | S6 | `tests/whitebox.test.mjs` | `node --test tests/whitebox.test.mjs` |
 | AC5 | `tests/shotlist-accept.test.mjs` | `node --test tests/shotlist-accept.test.mjs` |
-| AC6（客戶端半） | `tests/gacha.test.mjs` | 同下 |
+| AC6（客戶端半） | `tests/gacha.test.mjs` | 同下；**伺服端半：等待核心 C2**，未驗 |
 | AC7 | `tests/gacha.test.mjs` | `node --test tests/gacha.test.mjs` |
 | AC8 | `tests/assemble.test.mjs` | `node --test tests/assemble.test.mjs` |
+| AC11（assemble） | `tests/assemble.test.mjs` | 同上：無 key 的 assemble 只拼 ledger 中伺服端通過、sha256 相符的鏡；偽造「採用未通過 take」的 ledger → `SCHEMA_INVALID`、不出片 |
 | AC9 | `tests/mv.test.mjs` | `node cli/nikuniku.mjs mv --help && node --test tests/mv.test.mjs` |
 | AC11 | `tests/no-key.test.mjs` | `node --test tests/no-key.test.mjs`（精確斷言 exit 2、`API_KEY_REQUIRED`、mock 收到 0 個請求；REQUIREMENTS 原指令 `test $? -ne 0` 太寬，任何崩潰都會過） |
 | AC12 | `tests/locales.test.mjs` | `node --test tests/locales.test.mjs` |
 | AC13 | `tests/mcp-no-adult.test.mjs` | `node --test tests/mcp-no-adult.test.mjs` |
-| AC10 | 驗收機手冊（P3） | **未通過、未能驗**：需 C1–C4＋驗收機帳號。上線後指令：`NIKUNIKU_API_BASE=<staging> node cli/nikuniku.mjs run plan.json --out final.mp4 && node cli/nikuniku.mjs assemble --verify qa-receipt.json`，並比對 `/v1/recipe-runs/*` 的 `charged_units` 總和與帳單 |
+| AC10 | 驗收機手冊（P3） | **等待核心：未通過、未能驗**：需 C1–C4＋驗收機帳號。上線後指令：`NIKUNIKU_API_BASE=<staging> node cli/nikuniku.mjs run plan.json --out final.mp4 && node cli/nikuniku.mjs assemble --verify qa-receipt.json`，並比對 `/v1/recipe-runs/*` 的 `charged_units` 總和與帳單 |
 
-**AC6 與 AC10 在本次都不算通過**：AC6 只驗了客戶端那一半（不送 provider、照抄伺服端 route），伺服端判級要等 C2。
+**AC6 與 AC10 在本次都不算通過（UNVERIFIED，等待核心）**：AC6 只驗了客戶端那一半（不送 provider、照抄伺服端 route），伺服端判級要等 C2；AC10 要 C1–C4 上線、驗收機帳號與 staging key，並以 computer-use 走 S1→S10 再對帳。mock 通過不算這兩條的證據（ACCEPT-deb8cc0 同此判定）。
 
 每項都要有反向驗證：刪掉對應守衛，對應測試變紅（PLAN P2 各項）。
 
@@ -308,7 +310,7 @@ tests/*.test.mjs   tests/mock-api.mjs（擴充）
 
 | AC | happy | edge／error |
 |---|---|---|
-| AC1 | mock 全流程只連 mock 主機 | 輸出連結指向白名單外主機 → `HOST_REFUSED`、不寫檔 |
+| AC1 | mock 全流程只連 mock 主機；API 在 `api.nikuniku.ai` 時每個採用 take 只從該次 run 回傳的 `media.nikuniku.ai` 連結下載、不帶 key | 輸出連結指向白名單外主機 → `HOST_REFUSED`、不寫檔；轉址不跟隨；連結 sha256 與 run 不符 → `SHA256_MISMATCH` |
 | AC2 | 3 鏡 fixture 偵測 3 鏡、切點誤差 ≤0.5 s | 門檻改壞（>1）→ 只剩 1 鏡 → 檢查失敗；無 ffmpeg → `FFMPEG_UNAVAILABLE` |
 | AC3 | 乾淨 A＋B plan 0 個 error | 三種植入錯誤各報恰好一次 |
 | AC4 | 改寫過的台詞相似度低於門檻 | 抄原片台詞 → L004 |
@@ -317,7 +319,7 @@ tests/*.test.mjs   tests/mock-api.mjs（擴充）
 | AC7 | 前兩敗第三過 → 採用第三 | 同類三敗 → 停並入帳；全失敗 → 不採用任何 take；無判定欄位 → `ACCEPTANCE_UNAVAILABLE` |
 | AC8 | receipt 雜湊＝成片 sha256 | 成片改 1 byte → `RECEIPT_MISMATCH`；未採用鏡 → `TAKE_NOT_ACCEPTED` |
 | AC9 | `mv` 送出草稿帶 `reference_audio_id` | 沒給 `--audio` → exit 2、0 請求 |
-| AC11 | 無 key 時 breakdown／plan／lint／whitebox 正常 | 無 key 跑 `run`／`shoot`／`mv` → `API_KEY_REQUIRED`、0 請求 |
+| AC11 | 無 key 時 breakdown／plan／lint／whitebox 正常；assemble 拼接 ledger 中已採用、sha256 相符的鏡 | 無 key 跑 `run`／`shoot`／`mv` → `API_KEY_REQUIRED`、0 請求；assemble 遇未採用鏡 → `TAKE_NOT_ACCEPTED`、檔案 sha256 不符 → `TAKE_FILE_MISMATCH`、ledger 把未通過 take 標成採用 → `SCHEMA_INVALID`，都不出片 |
 | AC12 | 十四語同鍵、ar 為 RTL 並以隔離字元包住 | 任一語言缺鍵即失敗；stdout JSON 在各語言下相同 |
 | AC13 | 一般工具清單無成人工具 | 注入成人工具 → server 拒絕啟動 |
 
