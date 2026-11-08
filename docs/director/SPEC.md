@@ -47,7 +47,7 @@ grep -hE "^\| \[DK-" docs/director/SPEC.md | grep -E "spec|needs_core"
 - 客戶端唯一的對外主機是 `NIKUNIKU_API_BASE`（預設 `https://api.nikuniku.ai`；https，只有 loopback 可用 http，沿用既有 `apiBase()`）。成片下載的簽名連結只接受：與 API 同主機且同連接埠，或 API 為 `*.nikuniku.ai` 時的 `*.nikuniku.ai`（https、預設埠）。其他主機一律 `HOST_REFUSED`，什麼都不寫（AC1）。
 - 所有請求 `redirect:'manual'`：任何 3xx 都不跟隨、當錯誤處理（不會把 key 帶到別處）；下載簽名連結**不帶** API key。
 - 不送任何 provider 參數；`plan.provider_constraints.via` 只能是 `nikuniku_v1`（schema `const`）。
-- 參考片：只做結構復刻（節奏、鏡頭語法、鉤子位置），不重用原片畫面與台詞。`source.rights.status ∈ {unlicensed_reference, unknown}` 的來源 `usable_for` 必為 `analysis_only`；lint L004 擋台詞抄襲。**著作權判斷需律師覆核／Yves 決定（REQUIREMENTS D4）**，本工具不宣稱合規。
+- 參考片：只做結構復刻（節奏、鏡頭語法、鉤子位置），不重用原片畫面與台詞。`source.rights.status ∈ {unlicensed_reference, unknown}` 的來源 `usable_for` 必為 `analysis_only`；lint L004 擋台詞抄襲。**著作權判斷需律師覆核／產品負責人 決定（REQUIREMENTS D4）**，本工具不宣稱合規。
 - 成人內容：一般套件不含成人主機或成人工具（AC13）。`rating:"explicit"` 的鏡，客戶端只送鏡頭代號與結構欄位，露骨描述由伺服端起草（REQUIREMENTS §1.4）；客戶端宣告的 `rating` 只是建議，伺服端判定為準（C2）。
 
 ### 1.1 檔案配置
@@ -175,7 +175,7 @@ tests/*.test.mjs   tests/mock-api.mjs（擴充）
   4. `failed`／`pending`／`unavailable` **永不採用**；沒有「全失敗就挑分數最高」。
   5. 伺服端快照沒有 `acceptance` 欄位 → 該 take `verdict:"unavailable"`、鏡 `acceptance_unavailable`、停（不猜、不採用），exit 1 `ACCEPTANCE_UNAVAILABLE`。
   6. 預算：ledger 已報價總額（各 take `quoted_units` 之和）＋本次 `max_units` > 上限（`--max-credits` 與 `plan.budget.max_credits` 取小）→ 不送 run，`budget_stopped`，exit 4 `ABOVE_MAX_CREDITS`。每次 run 帶 `max_credits`＝該次報價，伺服端以報價綁定輸入（既有 recipe 合約）。**限制**：這是單一 ledger 的本機上限，不防同一 workspace 的其他程序或其他 ledger；跨程序的專案總額需要伺服端預留（§8 ★提案）。
-- 每個 take（含失敗類別）寫進 `gacha-ledger.json`＝失敗帳。失敗 take 誰付錢由伺服端規則決定（CORE-ASKS C4／Yves），客戶端只記錄伺服端回的 `charged_units`。
+- 每個 take（含失敗類別）寫進 `gacha-ledger.json`＝失敗帳。失敗 take 誰付錢由伺服端規則決定（CORE-ASKS C4／產品負責人），客戶端只記錄伺服端回的 `charged_units`。
 
 ### S10 拼接
 - 指令：`nikuniku assemble <plan.json> --ledger gacha-ledger.json --takes <dir> --out final.mp4`；`nikuniku assemble --verify qa-receipt.json [--takes <dir>]`
