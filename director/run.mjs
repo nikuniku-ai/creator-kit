@@ -12,7 +12,7 @@ export async function command(args){
  const ledger=o.ledger??join(dir,'gacha-ledger.json'),takes=o.takes??join(dir,'takes');
  const shot=await shoot({...o,ledger,takes});
  if(shot.exit)return shot;
- const cut=await assemble({positional:o.positional,ledger,takes,out});
+ const cut=await assemble({positional:o.positional,ledger,takes,out,recipe:o.recipe});
  if(cut.exit)return cut;
  return {result:{ok:true,data:{shoot:shot.result.data,assemble:cut.result.data}},notice:cut.notice};
 }

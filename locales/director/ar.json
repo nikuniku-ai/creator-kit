@@ -15,6 +15,7 @@
  "error.TAKE_NOT_ACCEPTED": "لقطة بلا تصوير معتمد: {message}",
  "error.TAKE_FILE_MISMATCH": "ملف اللقطة لا يطابق بصمة الخادم: {message}",
  "error.SERVER_RUN_NOT_FOUND": "لا يوجد لدى الخادم سجل لهذا التشغيل؛ لم يُنتَج أي فيلم: {message}",
+ "error.SERVER_RUN_MISMATCH": "تشغيل الخادم لا يخص هذه اللقطة (تشغيل أو وصفة أو مشهد آخر)؛ لم يُنتَج أي فيلم: {message}",
  "error.SERVER_NOT_PASSED": "لم يُجِز الخادم هذه اللقطة؛ لم يُنتَج أي فيلم: {message}",
  "error.SERVER_SHA_MISMATCH": "يسجّل الخادم بصمة مختلفة لهذه اللقطة؛ لم يُنتَج أي فيلم: {message}",
  "error.RECEIPT_MISMATCH": "إيصال الجودة لا يطابق الملفات: {message}",

@@ -15,6 +15,7 @@
  "error.TAKE_NOT_ACCEPTED": "Hay un plano sin toma adoptada: {message}",
  "error.TAKE_FILE_MISMATCH": "Un archivo de toma no coincide con el hash del servidor: {message}",
  "error.SERVER_RUN_NOT_FOUND": "El servidor no tiene registro de esta ejecución; no se montó nada: {message}",
+ "error.SERVER_RUN_MISMATCH": "La ejecución del servidor no es esta toma (otra ejecución, receta o plano); no se montó nada: {message}",
  "error.SERVER_NOT_PASSED": "El servidor no aprobó esta toma; no se montó nada: {message}",
  "error.SERVER_SHA_MISMATCH": "El servidor registra otro hash para esta toma; no se montó nada: {message}",
  "error.RECEIPT_MISMATCH": "El recibo de QA no coincide con los archivos: {message}",

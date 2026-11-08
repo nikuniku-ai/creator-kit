@@ -15,6 +15,7 @@
  "error.TAKE_NOT_ACCEPTED": "Un plan n’a aucune prise retenue: {message}",
  "error.TAKE_FILE_MISMATCH": "Un fichier de prise ne correspond pas à l’empreinte du serveur: {message}",
  "error.SERVER_RUN_NOT_FOUND": "Le serveur n’a aucune trace de cette exécution ; rien n’a été monté : {message}",
+ "error.SERVER_RUN_MISMATCH": "L’exécution du serveur ne correspond pas à cette prise (autre exécution, recette ou plan) ; rien n’a été monté : {message}",
  "error.SERVER_NOT_PASSED": "Le serveur n’a pas validé cette prise ; rien n’a été monté : {message}",
  "error.SERVER_SHA_MISMATCH": "Le serveur indique un autre hachage pour cette prise ; rien n’a été monté : {message}",
  "error.RECEIPT_MISMATCH": "Le reçu QA ne correspond pas aux fichiers: {message}",

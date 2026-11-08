@@ -15,6 +15,7 @@
  "error.TAKE_NOT_ACCEPTED": "Có cảnh chưa có take được chọn: {message}",
  "error.TAKE_FILE_MISMATCH": "Tệp take không khớp mã băm của máy chủ: {message}",
  "error.SERVER_RUN_NOT_FOUND": "Máy chủ không có bản ghi lần chạy này; chưa xuất phim: {message}",
+ "error.SERVER_RUN_MISMATCH": "Lần chạy trên máy chủ không phải cảnh quay này (lần chạy, công thức hoặc cảnh khác); chưa xuất phim: {message}",
  "error.SERVER_NOT_PASSED": "Máy chủ chưa duyệt cảnh quay này; chưa xuất phim: {message}",
  "error.SERVER_SHA_MISMATCH": "Máy chủ ghi một mã băm khác cho cảnh quay này; chưa xuất phim: {message}",
  "error.RECEIPT_MISMATCH": "Biên nhận QA không khớp các tệp: {message}",

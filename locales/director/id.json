@@ -15,6 +15,7 @@
  "error.TAKE_NOT_ACCEPTED": "Ada shot tanpa take yang dipakai: {message}",
  "error.TAKE_FILE_MISMATCH": "Berkas take tidak cocok dengan hash server: {message}",
  "error.SERVER_RUN_NOT_FOUND": "Server tidak punya catatan run ini; film tidak dibuat: {message}",
+ "error.SERVER_RUN_MISMATCH": "Run di server bukan take ini (run, resep, atau shot lain); film tidak dibuat: {message}",
  "error.SERVER_NOT_PASSED": "Server tidak meloloskan take ini; film tidak dibuat: {message}",
  "error.SERVER_SHA_MISMATCH": "Server mencatat hash lain untuk take ini; film tidak dibuat: {message}",
  "error.RECEIPT_MISMATCH": "Tanda terima QA tidak cocok dengan berkas: {message}",

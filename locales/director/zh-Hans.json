@@ -15,6 +15,7 @@
  "error.TAKE_NOT_ACCEPTED": "有镜头没有采用的 take: {message}",
  "error.TAKE_FILE_MISMATCH": "take 文件与服务端哈希不符: {message}",
  "error.SERVER_RUN_NOT_FOUND": "服务器查无此次运行，未出片: {message}",
+ "error.SERVER_RUN_MISMATCH": "服务器的运行与此镜不符（别的运行、配方或镜头），未出片: {message}",
  "error.SERVER_NOT_PASSED": "服务器未判定此镜通过，未出片: {message}",
  "error.SERVER_SHA_MISMATCH": "服务器记录的哈希与文件不符，未出片: {message}",
  "error.RECEIPT_MISMATCH": "QA 收据与文件不符: {message}",

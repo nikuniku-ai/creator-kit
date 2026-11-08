@@ -15,6 +15,7 @@
  "error.TAKE_NOT_ACCEPTED": "มีช็อตที่ไม่มีเทคที่เลือก: {message}",
  "error.TAKE_FILE_MISMATCH": "ไฟล์เทคไม่ตรงกับแฮชของเซิร์ฟเวอร์: {message}",
  "error.SERVER_RUN_NOT_FOUND": "เซิร์ฟเวอร์ไม่มีบันทึกการรันนี้ จึงไม่ได้ตัดต่อ: {message}",
+ "error.SERVER_RUN_MISMATCH": "การรันบนเซิร์ฟเวอร์ไม่ใช่เทคนี้ (การรัน สูตร หรือช็อตอื่น) จึงไม่ได้ตัดต่อ: {message}",
  "error.SERVER_NOT_PASSED": "เซิร์ฟเวอร์ไม่ได้ให้เทคนี้ผ่าน จึงไม่ได้ตัดต่อ: {message}",
  "error.SERVER_SHA_MISMATCH": "แฮชที่เซิร์ฟเวอร์บันทึกไม่ตรงกับไฟล์ จึงไม่ได้ตัดต่อ: {message}",
  "error.RECEIPT_MISMATCH": "ใบรับรอง QA ไม่ตรงกับไฟล์: {message}",

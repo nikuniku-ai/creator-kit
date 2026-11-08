@@ -3,6 +3,7 @@
 import {test,before,after,beforeEach} from 'node:test';
 import assert from 'node:assert/strict';
 import {readFileSync,writeFileSync,copyFileSync,existsSync,mkdirSync} from 'node:fs';
+import {execFileSync} from 'node:child_process';
 import {createHash} from 'node:crypto';
 import {join} from 'node:path';
 import {makeFixtures} from '../scripts/make-fixtures.mjs';
@@ -17,16 +18,17 @@ let fixtures,mock;
 before(async()=>{fixtures=makeFixtures().takes;mock=await start();});after(()=>mock.server.close());beforeEach(()=>mock.reset());
 const env=()=>({NIKUNIKU_API_BASE:mock.base,NIKUNIKU_API_KEY:KEY});
 // The server side of a ledger: every adopted take is a run the mock knows, passed, with these take files as its output.
-function serve(x,outcome={verdict:'passed'}){
+// The recipe is the plan shot's recipe_id (the example plan: white_studio_single), as shoot sends it.
+function serve(x,outcome={verdict:'passed'},{recipe='white_studio_single',files}={}){
  const l=JSON.parse(readFileSync(x.ledgerFile,'utf8'));
- for(const s of l.shots)if(s.adopted){mock.director.files[s.shot_id]=join(x.takes,s.shot_id+'.mp4');
-  mock.runs.set(s.adopted.run_id,{public:{run_id:s.adopted.run_id,job_id:s.adopted.job_id,state:'queued',recipe_id:'director_shot',recipe_version:'1'},shot:s.shot_id,take:s.adopted.take,outcome,polls:0});}
+ for(const s of l.shots)if(s.adopted){mock.director.files[s.shot_id]=files?.[s.shot_id]??join(x.takes,s.shot_id+'.mp4');
+  mock.runs.set(s.adopted.run_id,{public:{run_id:s.adopted.run_id,job_id:s.adopted.job_id,state:'queued',recipe_id:recipe,recipe_version:'1'},shot:s.shot_id,take:s.adopted.take,outcome,polls:0});}
  return x;
 }
 
 // A plan, its takes and a ledger in which the server adopted s1 take 2 and s2 take 1.
-function project({edit,ledgerEdit}={}){
- const dir=tmp(),takes=join(dir,'takes');mkdirSync(takes);
+function project({edit,ledgerEdit,takesDir}={}){
+ const dir=tmp(),takes=takesDir?takesDir(dir):join(dir,'takes');mkdirSync(takes,{recursive:true});
  const p=JSON.parse(readFileSync('schemas/examples/plan.ab-merge.json','utf8'));p.sources=[];edit?.(p);
  const planFile=join(dir,'plan.json');writeFileSync(planFile,JSON.stringify(p));
  for(const s of ['s1','s2'])copyFileSync(join(fixtures,s+'.mp4'),join(takes,s+'.mp4'));
@@ -148,6 +150,46 @@ test('AC11: a ledger the server confirms is cut; every adopted run was checked i
  assert.ok(runChecks().every(q=>q.authorization===`Bearer ${KEY}`));
  assert.equal(r.json.data.server_accepted,true);assert.equal(r.json.data.server_acceptance,'checked_at_assemble');
  assert.doesNotMatch(r.stderr,NOT_VERIFIED);
+});
+
+// AC11 (independent verifier on 2cee4a8): the bytes the server confirmed must be the bytes that are cut, and the run the
+// server confirmed must be this shot's run of this shot's recipe.
+const framemd5=f=>execFileSync('ffmpeg',['-hide_banner','-loglevel','error','-i',f,'-map','0:v','-f','framemd5','-'],{encoding:'utf8'}).split('\n').filter(l=>l&&!l.startsWith('#')).map(l=>l.split(',').pop().trim());
+test('AC11: a take swapped while the server is being asked is not what gets cut (the hashed bytes are the cut bytes)',async()=>{
+ const x=project(),pristine=join(x.dir,'pristine-s2.mp4');copyFileSync(join(x.takes,'s2.mp4'),pristine);serve(x,undefined,{files:{s2:pristine}});
+ const swap=req=>{if(req.url.startsWith('/v1/recipe-runs/job_s2_1'))copyFileSync(join(fixtures,'s1.mp4'),join(x.takes,'s2.mp4'));};
+ mock.server.prependListener('request',swap);
+ try{const r=await assemble(x);assert.equal(r.code,0,r.stderr);}finally{mock.server.removeListener('request',swap);}
+ const film=framemd5(x.out),honest=framemd5(pristine);
+ assert.ok(honest.every(m=>film.includes(m)),'the film holds the bytes the server confirmed');
+ assert.equal(film.length,framemd5(join(fixtures,'s1.mp4')).length+honest.length);
+});
+test('AC11: a --takes path with a newline cannot inject another file into the cut',async()=>{
+ let D;const x=project({takesDir:dir=>{D=dir;return join(dir,`x\nfile ${dir}/evil.mp4\n#`);}});
+ copyFileSync(join(fixtures,'s1.mp4'),join(D,'evil.mp4'));copyFileSync(join(fixtures,'s1.mp4'),join(D,'x'));serve(x);
+ const r=await assemble(x);
+ if(r.code===0){const film=framemd5(x.out),want=[...framemd5(join(x.takes,'s1.mp4')),...framemd5(join(x.takes,'s2.mp4'))];
+  assert.deepEqual(film,want,'only the two checked takes, in order');}
+ else{assert.equal(r.code,2);assert.equal(r.err.error.code,'USAGE');assert.equal(existsSync(join(x.dir,'out')),false);}
+});
+test('AC11: the server run must be this take: another run id/job id, another recipe, or one run adopted twice → exit 3 SERVER_RUN_MISMATCH',async()=>{
+ const cases=[
+  ['run of another recipe',()=>serve(project(),undefined,{recipe:'some_cheap_recipe'})],
+  ['server answers with another job_id',()=>{const x=serve(project());mock.runs.get('job_s2_1').public.job_id='job_other';return x;}],
+  ['s2 adopts the s1 run',()=>{const x=project({ledgerEdit:l=>{const t=l.shots[1].takes[0];t.run_id=t.job_id='job_s1_2';l.shots[1].adopted.run_id=l.shots[1].adopted.job_id='job_s1_2';}});
+   copyFileSync(join(x.takes,'s1.mp4'),join(x.takes,'s2.mp4'));
+   const l=JSON.parse(readFileSync(x.ledgerFile,'utf8'));l.shots[1].takes[0].output_sha256=sha(readFileSync(join(x.takes,'s2.mp4')));writeFileSync(x.ledgerFile,JSON.stringify(l));
+   serve(x);return x;}],
+ ];
+ for(const [why,make] of cases){mock.reset();const x=make();const r=await assemble(x);
+  assert.equal(r.code,3,`${why}: ${r.stderr}`);assert.equal(r.err.error.code,'SERVER_RUN_MISMATCH',why);assert.equal(existsSync(join(x.dir,'out')),false,why);}
+});
+test('AC11: every refused take is named, not only the first kind of problem',async()=>{
+ const x=serve(project());mock.runs.get('job_s1_2').outcome={state:'cancelled'};mock.runs.delete('job_s2_1');
+ const r=await assemble(x);assert.equal(r.code,3);assert.match(r.err.error.message,/\bs1\b/);assert.match(r.err.error.message,/\bs2\b/);
+});
+test('AC11: the output names the server that confirmed the cut',async()=>{
+ const x=serve(project());const r=await assemble(x);assert.equal(r.code,0,r.stderr);assert.equal(r.json.data.checked_by,mock.base);
 });
 test('AC11: verify checks integrity but never reports the cut as server-accepted',async()=>{
  const x=serve(project());assert.equal((await assemble(x)).code,0);const rPath=join(x.dir,'out','qa-receipt.json');

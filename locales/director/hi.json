@@ -15,6 +15,7 @@
  "error.TAKE_NOT_ACCEPTED": "एक शॉट में अपनाया गया टेक नहीं: {message}",
  "error.TAKE_FILE_MISMATCH": "टेक फ़ाइल सर्वर के हैश से मेल नहीं खाती: {message}",
  "error.SERVER_RUN_NOT_FOUND": "सर्वर के पास इस रन का कोई रिकॉर्ड नहीं है; कुछ भी नहीं जोड़ा गया: {message}",
+ "error.SERVER_RUN_MISMATCH": "सर्वर का रन यह टेक नहीं है (दूसरा रन, रेसिपी या शॉट); कुछ भी नहीं जोड़ा गया: {message}",
  "error.SERVER_NOT_PASSED": "सर्वर ने इस टेक को पास नहीं किया; कुछ भी नहीं जोड़ा गया: {message}",
  "error.SERVER_SHA_MISMATCH": "सर्वर इस टेक का दूसरा हैश बताता है; कुछ भी नहीं जोड़ा गया: {message}",
  "error.RECEIPT_MISMATCH": "QA रसीद फ़ाइलों से मेल नहीं खाती: {message}",

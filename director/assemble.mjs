@@ -10,10 +10,11 @@
 // `--verify` is offline and only proves cut integrity: it always reports server_acceptance "unverified" and
 // server_accepted false, and the receipt itself (no server signature, CORE-ASKS C7) stays "unverified".
 import {createHash} from 'node:crypto';
-import {readFileSync,existsSync,mkdirSync,writeFileSync,renameSync,unlinkSync} from 'node:fs';
+import {readFileSync,existsSync,mkdirSync,mkdtempSync,writeFileSync,renameSync,unlinkSync,rmSync} from 'node:fs';
+import {tmpdir} from 'node:os';
 import {join,dirname,relative,resolve,isAbsolute} from 'node:path';
 import {Refusal,ApiError,apiBase,apiKey,validId,call} from '../client/nikuniku-api.mjs';
-import {judge} from './shoot.mjs';
+import {judge,DEFAULT_RECIPE} from './shoot.mjs';
 import {parse,need} from './cli.mjs';
 import {readJson,writeJson,ff,duration} from './breakdown.mjs';
 import {validate} from './jsonschema.mjs';
@@ -32,19 +33,24 @@ export const UNVERIFIED={server_acceptance:'unverified',server_accepted:false};
 export const NOTICE='NOT_VERIFIED_BY_NIKUNIKU';
 export const CHECKED={server_acceptance:'checked_at_assemble',server_accepted:true};
 
-// Ask the server about each adopted take; returns the refusal result for the first problems found, or null.
-async function serverCheck(picks,ws,{key,api}){
- const q=encodeURIComponent,notFound=[],notPassed=[],shaDiffers=[];
- for(const p of picks){let judged;
-  try{judged=judge((await call(api,'GET',`/v1/recipe-runs/${q(p.take.run_id)}?workspace_id=${q(ws)}`,{key})).data);}
-  catch(e){if(e instanceof ApiError&&e.body.error.code==='NOT_FOUND'){notFound.push(`${p.shot.id}: run ${p.take.run_id}`);continue;}throw e;}
-  if(judged?.verdict!=='passed')notPassed.push(`${p.shot.id}: run ${p.take.run_id} is ${judged?.verdict??'still pending'}`);
-  else if(judged.output_sha256!==p.sha)shaDiffers.push(`${p.shot.id}: the server's sha256 ${judged.output_sha256.slice(0,12)}… is not the file's ${p.sha.slice(0,12)}…`);}
- const fail=(code,list,why)=>({exit:3,result:{ok:false,error:{code,message:`${why}: ${list.join('; ')}; nothing was written`}}});
- if(notFound.length)return fail('SERVER_RUN_NOT_FOUND',notFound,'the server has no such run');
- if(notPassed.length)return fail('SERVER_NOT_PASSED',notPassed,'the server did not pass');
- if(shaDiffers.length)return fail('SERVER_SHA_MISMATCH',shaDiffers,'the server reports another output');
- return null;
+// Ask the server about each adopted take; returns a refusal naming every refused take (the exit code follows the first
+// kind in this order), or null. The run the server describes must be THIS take: its run id and job id, the shot's recipe,
+// and no run adopted by two shots (independent verifier on 2cee4a8: crossshot / otherrecipe).
+async function serverCheck(picks,ws,{key,api,recipe}){
+ const q=encodeURIComponent,found={SERVER_RUN_NOT_FOUND:[],SERVER_RUN_MISMATCH:[],SERVER_NOT_PASSED:[],SERVER_SHA_MISMATCH:[]};
+ const seen=new Map();
+ for(const p of picks){const id=p.take.run_id,add=(c,m)=>found[c].push(`${p.shot.id}: ${m}`);
+  if(seen.has(id)){add('SERVER_RUN_MISMATCH',`run ${id} is already adopted by ${seen.get(id)}`);continue;}seen.set(id,p.shot.id);
+  let snap;
+  try{snap=(await call(api,'GET',`/v1/recipe-runs/${q(id)}?workspace_id=${q(ws)}`,{key})).data;}
+  catch(e){if(e instanceof ApiError&&e.body.error.code==='NOT_FOUND'){add('SERVER_RUN_NOT_FOUND',`run ${id}`);continue;}throw e;}
+  const judged=judge(snap),want=p.shot.recipe_id??recipe??DEFAULT_RECIPE;
+  if(snap.run_id!==id||snap.job_id!==p.take.job_id)add('SERVER_RUN_MISMATCH',`the server describes run ${snap.run_id}/job ${snap.job_id}, the ledger ${id}/${p.take.job_id}`);
+  else if(snap.recipe_id!==want)add('SERVER_RUN_MISMATCH',`run ${id} is of recipe ${snap.recipe_id}, not ${want}`);
+  else if(judged?.verdict!=='passed')add('SERVER_NOT_PASSED',`run ${id} is ${judged?.verdict??'still pending'}`);
+  else if(judged.output_sha256!==p.sha)add('SERVER_SHA_MISMATCH',`the server's sha256 ${judged.output_sha256.slice(0,12)}… is not the file's ${p.sha.slice(0,12)}…`);}
+ const codes=Object.keys(found).filter(c=>found[c].length);if(!codes.length)return null;
+ return {exit:3,result:{ok:false,error:{code:codes[0],message:codes.map(c=>`${c}: ${found[c].join('; ')}`).join('; ')+'; nothing was written'}}};
 }
 
 export async function assemble(o){
@@ -63,19 +69,26 @@ export async function assemble(o){
  const bad=[];
  for(const p of picks){p.file=resolve(join(takesDir,p.shot.id+'.mp4'));
   if(!existsSync(p.file)){bad.push(`${p.shot.id}: ${p.file} is missing`);continue;}
-  p.sha=fileSha(p.file);if(p.sha!==p.take.output_sha256)bad.push(`${p.shot.id}: file sha256 ${p.sha.slice(0,12)}… is not the server's ${String(p.take.output_sha256).slice(0,12)}…`);}
+  p.bytes=readFileSync(p.file);p.sha=sha(p.bytes);if(p.sha!==p.take.output_sha256)bad.push(`${p.shot.id}: file sha256 ${p.sha.slice(0,12)}… is not the server's ${String(p.take.output_sha256).slice(0,12)}…`);}
  if(bad.length)return {exit:3,result:{ok:false,error:{code:'TAKE_FILE_MISMATCH',message:bad.join('; ')+'; nothing was written'}}};
- const refused=await serverCheck(picks,validId(ledger.workspace_id,'workspace_id'),{key,api});if(refused)return refused;
+ const refused=await serverCheck(picks,validId(ledger.workspace_id,'workspace_id'),{key,api,recipe:o.recipe});if(refused)return refused;
+ // What is cut is a private copy of the very bytes that were hashed and confirmed, not the take files, which could change
+ // between the check and ffmpeg (TOCTOU, independent verifier on 2cee4a8). The copies have fixed names, so no path the
+ // caller chose ever reaches the concat list; a newline in the private folder's own path is refused outright.
+ const work=mkdtempSync(join(tmpdir(),'nikuniku-assemble-'));
+ try{
+ picks.forEach((p,i)=>{p.cut=join(work,`${i}.mp4`);writeFileSync(p.cut,p.bytes,{mode:0o600});});
+ if(/[\r\n]/.test(work))throw new Refusal('USAGE','the temporary folder path contains a line break; set TMPDIR to a plain path');
 
  const dir=dirname(out),edlFile=resolve(o.edl??join(dir,'edl.json')),receiptFile=resolve(o.receipt??join(dir,'qa-receipt.json'));
  let at=0;const entries=[];
- for(const p of picks){const ms=Math.round(await duration(p.file)*1000);
+ for(const p of picks){const ms=Math.round(await duration(p.cut)*1000);
   entries.push({shot_id:p.shot.id,job_id:p.take.job_id,file:rel(edlFile,p.file),sha256:p.sha,in_ms:0,out_ms:ms,record_in_ms:at});at+=ms;}
  const edl=checked('edl',{schema_version:1,plan_sha256:planSha,total_ms:at,entries});
  mkdirSync(dir,{recursive:true});mkdirSync(dirname(edlFile),{recursive:true});mkdirSync(dirname(receiptFile),{recursive:true});
  const list=out+'.concat-'+process.pid+'.txt',tmp=out+'.tmp-'+process.pid+'.mp4';
  // concat demuxer list: absolute paths, single quotes escaped the way the demuxer reads them.
- writeFileSync(list,picks.map(p=>`file '${p.file.replace(/'/g,"'\\''")}'`).join('\n')+'\n');
+ writeFileSync(list,picks.map(p=>`file '${p.cut.replace(/'/g,"'\\''")}'`).join('\n')+'\n');
  try{await ff('ffmpeg',['-hide_banner','-loglevel','error','-y','-f','concat','-safe','0','-i',list,'-c','copy','-movflags','+faststart',tmp]);renameSync(tmp,out);}
  finally{for(const f of [list,tmp])try{unlinkSync(f);}catch{}}
  writeJson(edlFile,edl);
@@ -84,7 +97,8 @@ export async function assemble(o){
   edl_file:rel(receiptFile,edlFile),edl_sha256:fileSha(edlFile),takes:picks.map(p=>({shot_id:p.shot.id,job_id:p.take.job_id,sha256:p.sha,verdict:'passed'})),
   created_at:new Date().toISOString().replace(/\.\d{3}Z$/,'Z'),plan_sha256:planSha,server_acceptance:UNVERIFIED.server_acceptance});
  writeJson(receiptFile,receipt);
- return {result:{ok:true,data:{file:out,edl:edlFile,receipt:receiptFile,output_sha256:receipt.output_sha256,total_ms:at,...CHECKED}}};
+ return {result:{ok:true,data:{file:out,edl:edlFile,receipt:receiptFile,output_sha256:receipt.output_sha256,total_ms:at,...CHECKED,checked_by:api.origin}}};
+ }finally{rmSync(work,{recursive:true,force:true});}
 }
 
 export function verify(receiptPath,{takes}={}){

@@ -15,6 +15,7 @@
  "error.TAKE_NOT_ACCEPTED": "採用テイクのないカットがあります: {message}",
  "error.TAKE_FILE_MISMATCH": "テイクのファイルがサーバーのハッシュと一致しません: {message}",
  "error.SERVER_RUN_NOT_FOUND": "サーバーにこの実行の記録がありません。書き出していません: {message}",
+ "error.SERVER_RUN_MISMATCH": "サーバーの実行がこのテイクと一致しません（別の実行・レシピ・ショット）。書き出していません: {message}",
  "error.SERVER_NOT_PASSED": "サーバーはこのテイクを合格にしていません。書き出していません: {message}",
  "error.SERVER_SHA_MISMATCH": "サーバーの記録したハッシュがファイルと一致しません。書き出していません: {message}",
  "error.RECEIPT_MISMATCH": "QA レシートがファイルと一致しません: {message}",

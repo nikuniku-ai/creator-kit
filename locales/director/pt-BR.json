@@ -15,6 +15,7 @@
  "error.TAKE_NOT_ACCEPTED": "Há um plano sem take adotado: {message}",
  "error.TAKE_FILE_MISMATCH": "Um arquivo de take não confere com o hash do servidor: {message}",
  "error.SERVER_RUN_NOT_FOUND": "O servidor não tem registro desta execução; nada foi montado: {message}",
+ "error.SERVER_RUN_MISMATCH": "A execução do servidor não é este take (outra execução, receita ou plano); nada foi montado: {message}",
  "error.SERVER_NOT_PASSED": "O servidor não aprovou este take; nada foi montado: {message}",
  "error.SERVER_SHA_MISMATCH": "O servidor registra outro hash para este take; nada foi montado: {message}",
  "error.RECEIPT_MISMATCH": "O recibo de QA não confere com os arquivos: {message}",

@@ -15,6 +15,7 @@
  "error.TAKE_NOT_ACCEPTED": "Eine Einstellung hat keinen übernommenen Take: {message}",
  "error.TAKE_FILE_MISMATCH": "Eine Take-Datei passt nicht zum Hash des Servers: {message}",
  "error.SERVER_RUN_NOT_FOUND": "Der Server kennt diesen Lauf nicht; nichts wurde geschnitten: {message}",
+ "error.SERVER_RUN_MISMATCH": "Der Serverlauf gehört nicht zu diesem Take (anderer Lauf, anderes Rezept oder andere Einstellung); nichts wurde geschnitten: {message}",
  "error.SERVER_NOT_PASSED": "Der Server hat diesen Take nicht abgenommen; nichts wurde geschnitten: {message}",
  "error.SERVER_SHA_MISMATCH": "Der Server meldet für diesen Take einen anderen Hash; nichts wurde geschnitten: {message}",
  "error.RECEIPT_MISMATCH": "Die QA-Quittung passt nicht zu den Dateien: {message}",

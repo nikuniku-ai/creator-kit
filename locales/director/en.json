@@ -15,6 +15,7 @@
  "error.TAKE_NOT_ACCEPTED": "A shot has no adopted take: {message}",
  "error.TAKE_FILE_MISMATCH": "A take file does not match the server hash: {message}",
  "error.SERVER_RUN_NOT_FOUND": "The server has no record of this run; nothing was cut: {message}",
+ "error.SERVER_RUN_MISMATCH": "The server's run is not this take (another run, recipe or shot); nothing was cut: {message}",
  "error.SERVER_NOT_PASSED": "The server did not pass this take; nothing was cut: {message}",
  "error.SERVER_SHA_MISMATCH": "The server reports another hash for this take; nothing was cut: {message}",
  "error.RECEIPT_MISMATCH": "The QA receipt does not match the files: {message}",
