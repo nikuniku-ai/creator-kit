@@ -9,6 +9,7 @@ import {readFileSync} from 'node:fs';
 import {publishDownload} from './publish-download.mjs';
 import {createHash} from 'node:crypto';
 import {COMMANDS as DIRECTOR,runDirector} from '../director/cli.mjs';
+import {MV_USAGE,mvPrecheck} from '../director/mv.mjs';
 import {Refusal,ApiError,apiBase,apiKey,validId,call,paths,uploadPng,uploadAudio,pickMode} from '../client/nikuniku-api.mjs';
 
 const USAGE=`nikuniku <command> [options]
@@ -29,6 +30,8 @@ const USAGE=`nikuniku <command> [options]
   nikuniku status <job_id> --workspace <id>
   nikuniku wait <job_id> --workspace <id> [--timeout <seconds>]
   nikuniku download <job_id> --workspace <id> --out <file>
+  nikuniku mv --image <ref.png> [...4] --audio <song> --prompt <txt> [--max-credits <n>]   (nikuniku mv --help)
+  director kit (docs/director/SPEC.md): source, breakdown, plan, lint, whitebox, shoot, assemble, run
 Environment: NIKUNIKU_API_KEY (required except pricing), NIKUNIKU_API_BASE (default https://api.nikuniku.ai)`;
 const TERMINAL=new Set(['succeeded','failed','cancelled']);
 function options(rest){
@@ -129,11 +132,13 @@ async function main(argv){
  const [command,...rest]=argv;
  if(command==='help'||command==='--help'){process.stdout.write(USAGE+'\n');return 0;}
  if(DIRECTOR.has(command))return runDirector(command,rest); // director kit (docs/director/SPEC.md); not part of the core export
+ if(command==='mv'&&rest.includes('--help')){process.stdout.write(MV_USAGE+'\n');return 0;} // director kit MV (AC9)
  const o=options(rest),api=apiBase(process.env.NIKUNIKU_API_BASE);
  let result;
  switch(command){
   case 'pricing':result=await request(api,'GET','/v1/pricing',{auth:false});break;
   case 'generate':{const g=await generate(api,o);process.stdout.write(JSON.stringify(g.result)+'\n');return g.exit;}
+  case 'mv':{mvPrecheck(o);const g=await generate(api,o);process.stdout.write(JSON.stringify(g.result)+'\n');return g.exit;} // director kit MV (AC9)
   case 'upload':{const ws=id(need(o,'workspace'),'--workspace'),rights=id(need(o,'rights'),'--rights'),bytes=new Uint8Array(readFileSync(need(o,'file'))),k=key();
    result=await uploadPng(api,k,ws,bytes,{rights_ref:rights});break;}
   // PR #7 P0-3: a file holding the API envelope {workspace_id, draft_json} is unwrapped instead of being sent as the draft.

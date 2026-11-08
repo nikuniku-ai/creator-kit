@@ -13,10 +13,26 @@ const ok=data=>({status:200,body:{ok:true,data}});
 const err=(status,code,message)=>({status,body:{ok:false,error:{code,message}}});
 const routes={
  'GET /v1/pricing':()=>ok({price_version:'mock-1',unit:'credit_v1',video_credits_per_second:8}),
- 'GET /v1/capabilities':()=>ok({schema_version:1,releases:[{alias:'h3',release_id:'h3-mock',state:'qualified',modes:[{mode:'image_to_video',duration_ms:5083,references_min:1,references_max:1,audio:'native'}]}]}),
+ // h3mv / multi_image_song is a MOCK-ONLY release and mode name: core mode names come from release manifests
+ // (apps/api/src/modules/catalog/capabilities.ts); a sold mode with audio 'external' takes a song (E1).
+ 'GET /v1/capabilities':()=>ok({schema_version:1,releases:[{alias:'h3',release_id:'h3-mock',state:'qualified',modes:[{mode:'image_to_video',duration_ms:5083,references_min:1,references_max:1,audio:'native'}]},
+  {alias:'h3mv',release_id:'h3mv-mock',state:'qualified',modes:[{mode:'multi_image_song',duration_ms:10000,references_min:1,references_max:4,audio:'external'}]}]}),
  'GET /v1/me':()=>ok({workspace_id:WS,scopes:['generation:quote','billing:read']}),
  'GET /v1/wallet':()=>ok({unit_version:'credit_v1',available_units:300,reserved_units:0,consumed_units:0}),
 };
+// MV / generate path (E1): assets, audio, prompt check, drafts, quotes, jobs. Drafts are kept for assertions.
+function media(method,path,body,state){
+ let m;
+ if(method==='POST'&&path==='/v1/assets')return ok({asset_id:'asset_'+body.declaration.idempotency_key.slice(-12),state:'pending'});
+ if(method==='PUT'&&(m=path.match(/^\/v1\/assets\/([^/]+)\/content$/)))return ok({asset_id:m[1],state:'available'});
+ if(method==='POST'&&path==='/v1/audio')return ok({audio_id:'audio_'+body.declaration.idempotency_key.slice(-12),state:'pending'});
+ if(method==='PUT'&&(m=path.match(/^\/v1\/audio\/([^/]+)\/content$/)))return ok({audio_id:m[1],state:'available',duration_ms:2000});
+ if(method==='POST'&&path==='/v1/prompts/check')return ok({passed:!String(body.prompt).includes('BAD'),findings:[]});
+ if(method==='POST'&&path==='/v1/drafts'){const d=JSON.parse(body.draft_json);state.drafts.push(d);return ok({project_id:d.project.project_id,revision:1});}
+ if(method==='POST'&&path==='/v1/quotes')return ok({quote_id:'q_mv',max_units:state.director.mvUnits??80,unit_version:'credit_v1',input_hash:'f'.repeat(64)});
+ if(method==='POST'&&path==='/v1/jobs')return ok({job_id:'job_mv',state:'queued'});
+ return null;
+}
 const exact=(body,keys)=>body&&typeof body==='object'&&Object.keys(body).sort().join(',')===[...keys].sort().join(',');
 const strings=inputs=>inputs&&typeof inputs==='object'&&!Array.isArray(inputs)&&Object.values(inputs).every(v=>typeof v==='string');
 
@@ -29,7 +45,7 @@ const strings=inputs=>inputs&&typeof inputs==='object'&&!Array.isArray(inputs)&&
 //   badLinkSha: output links carry a wrong sha256; tamperFiles: /files/* flips the first byte
 export function start(options={}){
  const director={outcomes:{},maxUnits:40,files:{},outputHost:null,...options.director};
- const requests=[],runs=new Map(),byKey=new Map(),quotes=new Map();let seq=0;
+ const requests=[],runs=new Map(),byKey=new Map(),quotes=new Map(),drafts=[];let seq=0;
  const recipe=(method,path,body,base)=>{
   let m;
   if(method==='POST'&&(m=path.match(/^\/v1\/recipes\/([a-z][a-z0-9_]{1,63})\/quotes$/))){
@@ -79,12 +95,12 @@ export function start(options={}){
     const route=routes[`${req.method} ${path}`];
     const authed=req.headers.authorization===`Bearer ${KEY}`;
     const open=path.startsWith('/v1/pricing')||path.startsWith('/v1/capabilities');
-    const r=!authed&&!open?err(401,'KEY_INVALID','API key is missing or invalid'):route?route():recipe(req.method,path,body,base)??err(404,'NOT_FOUND','Route not found');
+    const r=!authed&&!open?err(401,'KEY_INVALID','API key is missing or invalid'):route?route():recipe(req.method,path,body,base)??media(req.method,path,body,{drafts,director})??err(404,'NOT_FOUND','Route not found');
     res.writeHead(r.status,{'content-type':'application/json'});res.end(JSON.stringify(r.body));
    });
   });
-  server.listen(0,'127.0.0.1',()=>resolve({server,base:`http://127.0.0.1:${server.address().port}`,requests,director,runs,
-   reset(){requests.length=0;runs.clear();byKey.clear();quotes.clear();Object.assign(director,{outcomes:{},maxUnits:40,files:{},outputHost:null,failRunOnce:false,redirectFiles:null,badRunId:false,nullSnapshot:false,badLinkSha:false,tamperFiles:false});}}));
+  server.listen(0,'127.0.0.1',()=>resolve({server,base:`http://127.0.0.1:${server.address().port}`,requests,director,runs,drafts,
+   reset(){requests.length=0;drafts.length=0;runs.clear();byKey.clear();quotes.clear();Object.assign(director,{outcomes:{},maxUnits:40,files:{},outputHost:null,failRunOnce:false,redirectFiles:null,mvUnits:80,badRunId:false,nullSnapshot:false,badLinkSha:false,tamperFiles:false});}}));
  });
 }
 if(import.meta.url===`file://${process.argv[1]}`){const {base}=await start();console.log(base);}
