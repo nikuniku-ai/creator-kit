@@ -183,7 +183,7 @@ tests/*.test.mjs   tests/mock-api.mjs（擴充）
 - 只接受 ledger 中 `status:"adopted"` 的鏡，檔案為 `<takes>/<shot_id>.mp4`（`shoot --download` 或 `run` 下載；下載時比對伺服端 sha256）。任一鏡未採用 → exit 3 `TAKE_NOT_ACCEPTED`。
 - `edl.json`（依 `order`）→ `ffmpeg -f concat -c copy`（只做硬切，不溶接、不補幀；REQUIREMENTS 與 preflight §3 步驟六）→ `qa-receipt.json`：`output_sha256` 為成片 sha256、`edl_sha256` 為 edl.json bytes 的 sha256、每段 take sha256。
 - 每段 take 檔的 sha256 必須等於 ledger 中伺服端回的 `output_sha256`（下載時已比對），否則 exit 3 `TAKE_FILE_MISMATCH`。
-- 無 key 也可 assemble（AC11 2026-11-08 釐清：拼接不生成新內容）。此時「伺服器紀錄」在本機只有 ledger（shoot 依伺服端回應寫入）；讀入時的 ledger 語意檢查會拒絕把未通過或無判定的 take 標成採用（`SCHEMA_INVALID`）。**限制**：一份前後自洽、但整份由人手寫的 ledger，離線無法與真伺服端比對——要防這種偽造，需要伺服端簽發的驗收證明（§8 ★提案，等待核心）。在那之前（ACCEPT-1e5e347 AC11 FAIL 之後），每份 qa-receipt 帶 `server_acceptance:"unverified"`（schema `const`，改成其他值或刪掉都 `SCHEMA_INVALID`），assemble／verify／run 的輸出帶 `server_accepted:false`，stderr 人讀行加「未經 nikuniku 驗收」（十四語 `notice.NOT_VERIFIED_BY_NIKUNIKU`）；verify 只證明拼接完整性，永不回報已驗收。
+- assemble 需要有效 key（AC11，2026-11-08 Studio 裁定；ACCEPT-ae8c4ef 以自洽偽造 ledger 證實離線無法分辨）。本機檢查（ledger 語意、take 檔 sha256）通過後、寫任何檔之前，對每個採用的鏡呼叫 `GET /v1/recipe-runs/{run_id}?workspace_id=<ledger.workspace_id>`（與 shoot 輪詢同一支）：查無此 run → `SERVER_RUN_NOT_FOUND`；伺服器未判 passed（失敗、待判、無判定）→ `SERVER_NOT_PASSED`；伺服器 output sha256 與檔案不符 → `SERVER_SHA_MISMATCH`；無 key → `API_KEY_REQUIRED`（0 請求）。全過才出片，輸出 `server_acceptance:"checked_at_assemble"`、`server_accepted:true`。`--verify` 離線、只證明拼接完整性，永遠回 `server_acceptance:"unverified"`、`server_accepted:false` 並在 stderr 加「未經 nikuniku 驗收」；qa-receipt 本身沒有伺服器簽章（C7），檔內 `server_acceptance` 仍為 `"unverified"`（schema `const`）。
 - receipt 帶 `edl_file`（相對於 receipt 所在目錄）、`output_file`（同）、`plan_sha256`。
 - `--verify`：重算成片 sha256 與 bytes、EDL sha256；EDL 的每段 shot／job／sha256 與 receipt.takes 一一相符；給 `--takes` 時再重算每段 take 檔 sha256。任一不符 → exit 3 `RECEIPT_MISMATCH`（AC8）。**receipt 證明的是「這支成片由這些檔案依此 EDL 拼成」，不證明伺服端驗收**（見 TL;DR 3）。
 
@@ -204,7 +204,7 @@ tests/*.test.mjs   tests/mock-api.mjs（擴充）
 | `lint` | 否 | 無 | lint-report.json |
 | `whitebox` | 否 | 無 | *.svg |
 | `shoot` | **是** | `/v1` | gacha-ledger.json、takes/ |
-| `assemble` | 否（只拼已採用且已下載的 take） | 無 | edl.json、qa-receipt.json、成片 |
+| `assemble` | **是**（出片前逐鏡向伺服器核對；`--verify` 不需要、離線） | `/v1`（只讀 `GET /v1/recipe-runs/{id}`） | edl.json、qa-receipt.json、成片 |
 | `run` | **是** | `/v1` | 全部 |
 | `mv` | **是** | `/v1` | job |
 
@@ -238,6 +238,9 @@ tests/*.test.mjs   tests/mock-api.mjs（擴充）
 | `SHOTS_NOT_ADOPTED` | 3 | shoot 結束仍有鏡未採用（停在三敗或用完次數） |
 | `TAKE_NOT_ACCEPTED` | 3 | assemble 遇到未採用的鏡 |
 | `TAKE_FILE_MISMATCH` | 3 | take 檔 sha256 與 ledger／伺服端不符 |
+| `SERVER_RUN_NOT_FOUND` | 3 | assemble 出片前向伺服器核對：查無 ledger 採用的 run（AC11） |
+| `SERVER_NOT_PASSED` | 3 | assemble 出片前核對：伺服器未判定該 take 通過（失敗、待判、無判定） |
+| `SERVER_SHA_MISMATCH` | 3 | assemble 出片前核對：伺服器回報的 output sha256 與檔案不符 |
 | `RECEIPT_MISMATCH` | 3 | QaReceipt 驗證失敗 |
 | `SHA256_MISMATCH` | 1 | 下載內容與伺服端 sha256 不符（不寫檔） |
 | `UNSUPPORTED` | 2 | 能力表沒有對應模式 |
@@ -295,7 +298,7 @@ tests/*.test.mjs   tests/mock-api.mjs（擴充）
 | AC6（客戶端半） | `tests/gacha.test.mjs` | 同下；**伺服端半：等待核心 C2**，未驗 |
 | AC7 | `tests/gacha.test.mjs` | `node --test tests/gacha.test.mjs` |
 | AC8 | `tests/assemble.test.mjs` | `node --test tests/assemble.test.mjs` |
-| AC11（assemble） | `tests/assemble.test.mjs` | 同上：無 key 的 assemble 只拼 ledger 中伺服端通過、sha256 相符的鏡；偽造「採用未通過 take」的 ledger → `SCHEMA_INVALID`、不出片；整份自洽的偽造 ledger 可出片，但 receipt／assemble／verify 一律標 `unverified`、`server_accepted:false`、「未經 nikuniku 驗收」，receipt 改稱已驗收 → verify 拒絕 |
+| AC11（assemble） | `tests/assemble.test.mjs` | assemble 出片前逐鏡向（mock）伺服器核對：自洽偽造 ledger → `SERVER_RUN_NOT_FOUND`；未通過／待判／無判定 → `SERVER_NOT_PASSED`；sha256 不符 → `SERVER_SHA_MISMATCH`；無 key → `API_KEY_REQUIRED`、0 請求；都不寫檔。偽造「採用未通過 take」的 ledger → `SCHEMA_INVALID`。verify 離線、永遠 `unverified`／`server_accepted:false`；receipt 改稱已驗收 → verify 拒絕。反向：刪掉核對呼叫 → 6 個測試紅 |
 | AC9 | `tests/mv.test.mjs` | `node cli/nikuniku.mjs mv --help && node --test tests/mv.test.mjs` |
 | AC11 | `tests/no-key.test.mjs` | `node --test tests/no-key.test.mjs`（精確斷言 exit 2、`API_KEY_REQUIRED`、mock 收到 0 個請求；REQUIREMENTS 原指令 `test $? -ne 0` 太寬，任何崩潰都會過） |
 | AC12 | `tests/locales.test.mjs` | `node --test tests/locales.test.mjs` |
@@ -319,7 +322,7 @@ tests/*.test.mjs   tests/mock-api.mjs（擴充）
 | AC7 | 前兩敗第三過 → 採用第三 | 同類三敗 → 停並入帳；全失敗 → 不採用任何 take；無判定欄位 → `ACCEPTANCE_UNAVAILABLE` |
 | AC8 | receipt 雜湊＝成片 sha256 | 成片改 1 byte → `RECEIPT_MISMATCH`；未採用鏡 → `TAKE_NOT_ACCEPTED` |
 | AC9 | `mv` 送出草稿帶 `reference_audio_id` | 沒給 `--audio` → exit 2、0 請求 |
-| AC11 | 無 key 時 breakdown／plan／lint／whitebox 正常；assemble 拼接 ledger 中已採用、sha256 相符的鏡 | 無 key 跑 `run`／`shoot`／`mv` → `API_KEY_REQUIRED`、0 請求；assemble 遇未採用鏡 → `TAKE_NOT_ACCEPTED`、檔案 sha256 不符 → `TAKE_FILE_MISMATCH`、ledger 把未通過 take 標成採用 → `SCHEMA_INVALID`，都不出片 |
+| AC11 | 無 key 時 breakdown／plan／lint／whitebox 正常；有 key 時 assemble 只拼伺服器確認通過、sha256 相符的鏡 | 無 key 跑 `run`／`shoot`／`mv` → `API_KEY_REQUIRED`、0 請求；無 key 跑 assemble → `API_KEY_REQUIRED`；伺服器查無／未通過／sha 不符 → `SERVER_RUN_NOT_FOUND`／`SERVER_NOT_PASSED`／`SERVER_SHA_MISMATCH`；assemble 遇未採用鏡 → `TAKE_NOT_ACCEPTED`、檔案 sha256 不符 → `TAKE_FILE_MISMATCH`、ledger 把未通過 take 標成採用 → `SCHEMA_INVALID`，都不出片 |
 | AC12 | 十四語同鍵、ar 為 RTL 並以隔離字元包住 | 任一語言缺鍵即失敗；stdout JSON 在各語言下相同 |
 | AC13 | 一般工具清單無成人工具 | 注入成人工具 → server 拒絕啟動 |
 
