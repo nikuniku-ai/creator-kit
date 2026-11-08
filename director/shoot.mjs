@@ -8,8 +8,8 @@
 // The ledger is rewritten atomically after every step and guarded by an O_EXCL lock file, so a crash resumes with the same
 // idempotency keys instead of paying twice. The ledger is a LOCAL record, not proof of acceptance (SPEC TL;DR 3).
 import {createHash} from 'node:crypto';
-import {readFileSync,existsSync,openSync,closeSync,unlinkSync,writeSync} from 'node:fs';
-import {join} from 'node:path';
+import {readFileSync,existsSync,openSync,closeSync,unlinkSync,writeSync,mkdirSync} from 'node:fs';
+import {join,dirname} from 'node:path';
 import {Refusal,ApiError,apiBase,apiKey,validId,call} from '../client/nikuniku-api.mjs';
 import {parse,need,number} from './cli.mjs';
 import {readJson,writeJson} from './breakdown.mjs';
@@ -103,6 +103,9 @@ function preflight(o){
 export async function shoot(o){
  const pre=preflight(o);if(pre.refused)return pre.refused;
  const {key,api,plan,planSha,shots,ledgerPath,cap,wait}=pre;
+ // The ledger's folder may not exist yet (run derives it from --out); create it here, after every local check passed,
+ // so the O_EXCL lock below does not fail with ENOENT and get reported as a missing input file (D1, ACCEPT-deb8cc0).
+ mkdirSync(dirname(ledgerPath),{recursive:true});
  const lock=ledgerPath+'.lock';
  const take=()=>{const fd=openSync(lock,'wx');writeSync(fd,String(process.pid));closeSync(fd);};
  try{take();}

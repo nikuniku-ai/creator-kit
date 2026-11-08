@@ -8,6 +8,7 @@ import {createHash} from 'node:crypto';
 import {join} from 'node:path';
 import {start,KEY,WS} from './mock-api.mjs';
 import {cli,tmp} from './helpers.mjs';
+import {makeFixtures} from '../scripts/make-fixtures.mjs';
 import {decide,idempotencyKey,projectShot} from '../director/shoot.mjs';
 import {validate} from '../director/jsonschema.mjs';
 import {semantics} from '../director/semantics.mjs';
@@ -209,4 +210,16 @@ test('V5: Ctrl-C while waiting for a verdict removes the lock (exit 130)',async(
  assert.ok(existsSync(ledger+'.lock'),'lock held while waiting');
  const code=await new Promise(r=>{child.on('exit',(c,sig)=>r(c??sig));child.kill('SIGINT');});
  assert.equal(code,130);assert.equal(existsSync(ledger+'.lock'),false);
+});
+
+// ── D1 (ACCEPT-deb8cc0): an output folder that does not exist yet is created, not reported as a missing input ──
+test('D1: run --out into a folder that does not exist yet creates it and finishes; shoot --ledger likewise',async()=>{
+ const t=makeFixtures().takes;mock.director.files={s1:join(t,'s1.mp4'),s2:join(t,'s2.mp4')};
+ const {f,dir}=planFile();const out=join(dir,'never','created','final.mp4');
+ const r=await cli(['run',f,'--out',out],env());
+ assert.equal(r.code,0,r.stderr);assert.equal(existsSync(out),true);
+ assert.equal(existsSync(join(dir,'never','created','gacha-ledger.json')),true);
+ mock.reset();const x=planFile(),ledger=join(x.dir,'new-dir','ledger.json');
+ const s=await cli(['shoot',x.f,'--ledger',ledger,'--shot','s1'],env());
+ assert.equal(s.code,0,s.stderr);readLedger(ledger);
 });
