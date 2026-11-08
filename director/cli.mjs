@@ -3,7 +3,7 @@
 // {ok:false,error:{code,message}} envelope and the second is the localized message. Exit codes per SPEC §5.
 import {Refusal,ApiError} from '../client/nikuniku-api.mjs';
 import {pickLang,render} from './i18n.mjs';
-export const COMMANDS=new Set(['source','breakdown','plan','lint','whitebox','shoot']);
+export const COMMANDS=new Set(['source','breakdown','plan','lint','whitebox','shoot','assemble']);
 export function parse(rest,{multi=[],flags=[]}={}){
  const out={positional:[]};
  for(let i=0;i<rest.length;i++){const a=rest[i];
@@ -25,6 +25,7 @@ const handlers={
  lint:async o=>(await import('./lint.mjs')).command(o),
  whitebox:async o=>(await import('./whitebox.mjs')).command(o),
  shoot:async o=>(await import('./shoot.mjs')).command(o),
+ assemble:async o=>(await import('./assemble.mjs')).command(o),
 };
 export async function runDirector(command,rest){
  let lang='en';
