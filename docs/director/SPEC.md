@@ -183,7 +183,7 @@ tests/*.test.mjs   tests/mock-api.mjs（擴充）
 - 只接受 ledger 中 `status:"adopted"` 的鏡，檔案為 `<takes>/<shot_id>.mp4`（`shoot --download` 或 `run` 下載；下載時比對伺服端 sha256）。任一鏡未採用 → exit 3 `TAKE_NOT_ACCEPTED`。
 - `edl.json`（依 `order`）→ `ffmpeg -f concat -c copy`（只做硬切，不溶接、不補幀；REQUIREMENTS 與 preflight §3 步驟六）→ `qa-receipt.json`：`output_sha256` 為成片 sha256、`edl_sha256` 為 edl.json bytes 的 sha256、每段 take sha256。
 - 每段 take 檔的 sha256 必須等於 ledger 中伺服端回的 `output_sha256`（下載時已比對），否則 exit 3 `TAKE_FILE_MISMATCH`。
-- 無 key 也可 assemble（AC11 2026-11-08 釐清：拼接不生成新內容）。此時「伺服器紀錄」在本機只有 ledger（shoot 依伺服端回應寫入）；讀入時的 ledger 語意檢查會拒絕把未通過或無判定的 take 標成採用（`SCHEMA_INVALID`）。**限制**：一份前後自洽、但整份由人手寫的 ledger，離線無法與真伺服端比對——要防這種偽造，需要伺服端簽發的驗收證明（§8 ★提案，等待核心）。
+- 無 key 也可 assemble（AC11 2026-11-08 釐清：拼接不生成新內容）。此時「伺服器紀錄」在本機只有 ledger（shoot 依伺服端回應寫入）；讀入時的 ledger 語意檢查會拒絕把未通過或無判定的 take 標成採用（`SCHEMA_INVALID`）。**限制**：一份前後自洽、但整份由人手寫的 ledger，離線無法與真伺服端比對——要防這種偽造，需要伺服端簽發的驗收證明（§8 ★提案，等待核心）。在那之前（ACCEPT-1e5e347 AC11 FAIL 之後），每份 qa-receipt 帶 `server_acceptance:"unverified"`（schema `const`，改成其他值或刪掉都 `SCHEMA_INVALID`），assemble／verify／run 的輸出帶 `server_accepted:false`，stderr 人讀行加「未經 nikuniku 驗收」（十四語 `notice.NOT_VERIFIED_BY_NIKUNIKU`）；verify 只證明拼接完整性，永不回報已驗收。
 - receipt 帶 `edl_file`（相對於 receipt 所在目錄）、`output_file`（同）、`plan_sha256`。
 - `--verify`：重算成片 sha256 與 bytes、EDL sha256；EDL 的每段 shot／job／sha256 與 receipt.takes 一一相符；給 `--takes` 時再重算每段 take 檔 sha256。任一不符 → exit 3 `RECEIPT_MISMATCH`（AC8）。**receipt 證明的是「這支成片由這些檔案依此 EDL 拼成」，不證明伺服端驗收**（見 TL;DR 3）。
 
@@ -295,7 +295,7 @@ tests/*.test.mjs   tests/mock-api.mjs（擴充）
 | AC6（客戶端半） | `tests/gacha.test.mjs` | 同下；**伺服端半：等待核心 C2**，未驗 |
 | AC7 | `tests/gacha.test.mjs` | `node --test tests/gacha.test.mjs` |
 | AC8 | `tests/assemble.test.mjs` | `node --test tests/assemble.test.mjs` |
-| AC11（assemble） | `tests/assemble.test.mjs` | 同上：無 key 的 assemble 只拼 ledger 中伺服端通過、sha256 相符的鏡；偽造「採用未通過 take」的 ledger → `SCHEMA_INVALID`、不出片 |
+| AC11（assemble） | `tests/assemble.test.mjs` | 同上：無 key 的 assemble 只拼 ledger 中伺服端通過、sha256 相符的鏡；偽造「採用未通過 take」的 ledger → `SCHEMA_INVALID`、不出片；整份自洽的偽造 ledger 可出片，但 receipt／assemble／verify 一律標 `unverified`、`server_accepted:false`、「未經 nikuniku 驗收」，receipt 改稱已驗收 → verify 拒絕 |
 | AC9 | `tests/mv.test.mjs` | `node cli/nikuniku.mjs mv --help && node --test tests/mv.test.mjs` |
 | AC11 | `tests/no-key.test.mjs` | `node --test tests/no-key.test.mjs`（精確斷言 exit 2、`API_KEY_REQUIRED`、mock 收到 0 個請求；REQUIREMENTS 原指令 `test $? -ne 0` 太寬，任何崩潰都會過） |
 | AC12 | `tests/locales.test.mjs` | `node --test tests/locales.test.mjs` |
