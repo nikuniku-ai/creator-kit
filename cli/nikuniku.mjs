@@ -10,21 +10,28 @@ import {publishDownload} from './publish-download.mjs';
 import {createHash} from 'node:crypto';
 import {COMMANDS as DIRECTOR,runDirector} from '../director/cli.mjs';
 import {MV_USAGE,mvPrecheck} from '../director/mv.mjs';
-import {Refusal,ApiError,apiBase,apiKey,validId,call,paths,uploadPng,uploadAudio,pickMode} from '../client/nikuniku-api.mjs';
+import {Refusal,ApiError,apiBase,apiKey,validId,call,paths,uploadPng,uploadAudio,pickMode,validRecipe,recipePaths,runRecipe} from '../client/nikuniku-api.mjs';
 
 const USAGE=`nikuniku <command> [options]
   nikuniku pricing
+  nikuniku billing-channel --workspace <id>   (read own contract; public pricing remains retail)
   nikuniku generate [--workspace <id>] --prompt <prompt.txt|-> [--image <ref.png> ...] [--audio <song.wav|.mp3>] [--continue-from <job_id>]
                     [--project <id>] [--max-credits <n>] [--wait [--out <file>]]
       one step: upload, check (exit 3 if it fails), draft, quote, refuse above --max-credits (exit 4), submit;
-      defaults come from /v1/capabilities (h3 image_to_video 5083 ms when the table is not available); override with
+      defaults and allowed overrides come from current /v1/capabilities; unavailable or incompatible modes stop before upload. Select with
       --release <alias> --mode <mode> --duration-ms <ms> --price-version <v>; --workspace defaults to the key's own (GET /v1/me);
       --image may repeat (several identity images), --audio adds a song, --continue-from continues a delivered job: the
       release and mode are then the sold ones that take them (exit 2 naming what is missing when none does)
+  nikuniku recipes [<recipe_id>]   (the published recipes, read from the API; no key needed)
+  nikuniku run <recipe_id> [--workspace <id>] --input <name>=<value> ... --max-credits <n> [--dry-run] [--wait [--timeout <s>]]
+      quotes first; above --max-credits it stops with exit 4 and nothing is charged; --dry-run stops after the quote
+      (no ceiling needed); the same workspace, recipe and inputs resume the same run instead of starting a second one
   nikuniku upload --workspace <id> --file <image.png> --rights <rights_ref>
   nikuniku draft --workspace <id> --file <draft.json|->   (the draft object, or the {workspace_id, draft_json} body)
   nikuniku compose --workspace <id> --file <description.txt|-> --key <idempotency_key>
   nikuniku check --workspace <id> --file <prompt.txt|-> [--mode image_to_video]   (exit 3 when the prompt has errors)
+  nikuniku plan --workspace <id> --project <id> [--revision <n>]   (read the production plan)
+  nikuniku plan --workspace <id> --project <id> --file <plan.json|-> --base <revision>   (save; 0 for a new plan; a stale base is PLAN_REVISION_CONFLICT)
   nikuniku quote --workspace <id> --project <id>
   nikuniku submit --workspace <id> --command <command.json|->
   nikuniku status <job_id> --workspace <id>
@@ -38,10 +45,20 @@ function options(rest){
  const out={positional:[]};
  for(let i=0;i<rest.length;i++){const a=rest[i];
   if(a==='--wait'){out.wait=true;continue;}
+  if(a==='--dry-run'){out['dry-run']=true;continue;}
+  if(a==='--input'){const v=rest[i+1];if(v===undefined)throw new Refusal('USAGE','--input needs name=value');(out.inputs??=[]).push(v);i++;continue;}
   if(a==='--image'){const v=rest[i+1];if(v===undefined)throw new Refusal('USAGE','--image needs a value');(out.images??=[]).push(v);out.image=v;i++;continue;}
   if(a.startsWith('--')){const v=rest[i+1];if(v===undefined)throw new Refusal('USAGE',`${a} needs a value`);out[a.slice(2)]=v;i++;}
   else out.positional.push(a);}
  return out;
+}
+// --input name=value (repeatable) becomes the recipe's inputs object; a name may appear once.
+function recipeInputs(list=[]){
+ const inputs={};
+ for(const item of list){const at=item.indexOf('='),name=at<0?'':item.slice(0,at);
+  if(!/^[a-z][a-z0-9_]{0,63}$/.test(name)||at===item.length-1)throw new Refusal('USAGE',`--input ${item} must be name=value with a lower snake_case name`);
+  if(Object.hasOwn(inputs,name))throw new Refusal('USAGE',`--input ${name} is given twice`);inputs[name]=item.slice(at+1);}
+ return inputs;
 }
 const need=(o,name)=>{const v=o[name];if(typeof v!=='string'||!v)throw new Refusal('USAGE',`--${name} is required`);return v;};
 function readText(path){return readFileSync(path==='-'?0:path,'utf8');}
@@ -72,9 +89,8 @@ async function download(api,job,ws,out){
 
 // Creator feedback PR #7 P0-3: a creator should not hand-write the double-encoded draft. `generate` composes the existing
 // routes in order and stops before anything is charged when the prompt check fails or the quote is above --max-credits.
-// Each step is idempotent: the project id and every idempotency key derive from the inputs, so running it again after a
-// network failure resumes instead of creating a second job.
-const H3_DEFAULTS={release:'h3',mode:'image_to_video',duration_ms:5083};
+// Deterministic project/job identities are preserved. An unknown submission must be reconciled by its original
+// request key before any new submission; rerunning preparation is not a recovery shortcut.
 // Bound waiting controls before any HTTP/admission. Node timers above 2^31-1 ms wrap to 1 ms.
 function waitControls(o){
  const raw=o.timeout??'1800',seconds=Number(raw),poll=Number(process.env.NIKUNIKU_POLL_MS??'5000');
@@ -94,12 +110,13 @@ async function generate(api,o){
  const e1=images.length>1||o.audio!==undefined||continueFrom!==null;
  // A key belongs to one workspace; when --workspace is absent the key says which (GET /v1/me).
  const ws=o.workspace!==undefined?id(o.workspace,'--workspace'):id((await req('GET','/v1/me')).data.workspace_id,'workspace_id');
- let spec={...H3_DEFAULTS},cap=null;
- try{cap=(await call(api,'GET','/v1/capabilities',{})).data;const r=cap.releases?.[0],m=r?.modes?.[0];if(r&&m&&!e1)spec={release:r.alias,mode:m.mode,duration_ms:m.duration_ms};}catch{}
- if(e1){const picked=pickMode(cap,{images:images.length,audio:o.audio!==undefined,continueFrom});
-  if(picked)spec=picked;else if(!(o.release&&o.mode))throw new Refusal('UNSUPPORTED',`no sold release takes ${images.length} image(s)${o.audio!==undefined?', a song':''}${continueFrom?', a continuation':''}; see GET /v1/capabilities`);}
- if(o.release)spec.release=id(o.release,'--release');if(o.mode)spec.mode=id(o.mode,'--mode');
- if(o['duration-ms']!==undefined){const d=Number(o['duration-ms']);if(!Number.isSafeInteger(d)||d<1)throw new Refusal('USAGE','--duration-ms must be a whole number of milliseconds');spec.duration_ms=d;}
+ const release=o.release===undefined?undefined:id(o.release,'--release'),mode=o.mode===undefined?undefined:id(o.mode,'--mode');
+ const duration_ms=o['duration-ms']===undefined?undefined:Number(o['duration-ms']);
+ if(duration_ms!==undefined&&(!Number.isSafeInteger(duration_ms)||duration_ms<1))throw new Refusal('USAGE','--duration-ms must be a whole number of milliseconds');
+ const cap=(await call(api,'GET','/v1/capabilities',{})).data;
+ const spec=pickMode(cap,{images:images.length,audio:o.audio!==undefined,continueFrom,release,mode,duration_ms});
+ if(!spec)throw new Refusal('UNSUPPORTED','no current sold mode matches these inputs and overrides; see GET /v1/capabilities');
+ id(spec.release,'capability release');id(spec.mode,'capability mode');
  const price=o['price-version']??(await call(api,'GET','/v1/pricing',{})).data.price_version;
  const rights=id(o.rights??'creator-owned','--rights'),assets=[];
  for(const file of images)assets.push((await uploadPng(api,k,ws,new Uint8Array(readFileSync(file)),{rights_ref:rights})).data.asset_id);
@@ -137,6 +154,7 @@ async function main(argv){
  let result;
  switch(command){
   case 'pricing':result=await request(api,'GET','/v1/pricing',{auth:false});break;
+  case 'billing-channel':result=await request(api,'GET',paths.billingChannel(id(need(o,'workspace'),'--workspace')));break;
   case 'generate':{const g=await generate(api,o);process.stdout.write(JSON.stringify(g.result)+'\n');return g.exit;}
   case 'mv':{mvPrecheck(o);const g=await generate(api,o);process.stdout.write(JSON.stringify(g.result)+'\n');return g.exit;} // director kit MV (AC9)
   case 'upload':{const ws=id(need(o,'workspace'),'--workspace'),rights=id(need(o,'rights'),'--rights'),bytes=new Uint8Array(readFileSync(need(o,'file'))),k=key();
@@ -148,6 +166,11 @@ async function main(argv){
    result=await request(api,'POST','/v1/prompts/draft',{body:{workspace_id:ws,description,idempotency_key:k}});break;}
   case 'check':{const ws=id(need(o,'workspace'),'--workspace'),prompt=readText(need(o,'file'));key();
    result=await request(api,'POST','/v1/prompts/check',{body:{workspace_id:ws,mode:o.mode??'image_to_video',prompt}});break;}
+  case 'plan':{const ws=id(need(o,'workspace'),'--workspace'),project=id(need(o,'project'),'--project');key();
+   if(o.file===undefined){const rev=o.revision===undefined?'':'&revision='+String(o.revision);if(rev&&!/^&revision=[1-9][0-9]{0,15}$/.test(rev))throw new Refusal('USAGE','--revision must be a positive integer');
+    result=await request(api,'GET','/v1/projects/'+encodeURIComponent(project)+'/plan?workspace_id='+encodeURIComponent(ws)+rev);break;}
+   const base=Number(need(o,'base'));if(!Number.isSafeInteger(base)||base<0)throw new Refusal('USAGE','--base must be the revision you edited (0 for a new plan)');
+   result=await request(api,'PUT','/v1/projects/'+encodeURIComponent(project)+'/plan',{body:{workspace_id:ws,base_revision:base,plan:readInput(o.file)}});break;}
   case 'quote':{const ws=id(need(o,'workspace'),'--workspace'),project=id(need(o,'project'),'--project');key();
    result=await request(api,'POST','/v1/quotes',{body:{workspace_id:ws,project_id:project}});break;}
   case 'submit':{const ws=id(need(o,'workspace'),'--workspace'),cmd=readInput(need(o,'command'));key();
@@ -162,6 +185,20 @@ async function main(argv){
     if(Date.now()+poll>deadline)throw new Refusal('WAIT_TIMEOUT',`job is still ${result.data.state}`,1);
     await new Promise(r=>setTimeout(r,poll));}
    break;}
+  case 'recipes':result=await request(api,'GET',o.positional[0]===undefined?recipePaths.list():recipePaths.one(o.positional[0]),{auth:false});break;
+  case 'run':{const recipe=validRecipe(o.positional[0]),inputs=recipeInputs(o.inputs),dryRun=o['dry-run']===true;
+   const raw=o['max-credits'];if(raw!==undefined&&!/^[0-9]+$/.test(raw))throw new Refusal('USAGE','--max-credits must be a nonnegative whole number');
+   const maxCredits=raw===undefined?undefined:Number(raw);if(maxCredits===undefined&&!dryRun)throw new Refusal('USAGE','--max-credits is required for a run (use --dry-run to see the quote first)');
+   const waiting=o.wait===undefined?null:waitControls(o),k=key();
+   const ws=o.workspace!==undefined?id(o.workspace,'--workspace'):id((await call(api,'GET','/v1/me',{key:k})).data.workspace_id,'workspace_id');
+   try{result=await runRecipe(api,k,{workspace:ws,recipe,inputs,maxCredits,dryRun,idempotencyKey:o.key});}
+   catch(error){if(error instanceof ApiError&&error.body?.error?.code==='ABOVE_MAX_CREDITS'){process.stdout.write(JSON.stringify(error.body)+'\n');return 4;}throw error;}
+   if(dryRun||!waiting)break;
+   const runId=id(result.data.run_id,'run_id'),deadline=Date.now()+waiting.seconds*1000;
+   for(;;){result=await request(api,'GET',recipePaths.run(runId,ws));if(TERMINAL.has(result.data.state))break;
+    if(Date.now()+waiting.poll>deadline)throw new Refusal('WAIT_TIMEOUT',`run is still ${result.data.state}`,1);
+    await new Promise(r=>setTimeout(r,waiting.poll));}
+   process.stdout.write(JSON.stringify(result)+'\n');return result.data.state==='succeeded'?0:1;}
   default:throw new Refusal('USAGE',command?`unknown command ${command}`:'a command is required');
  }
  process.stdout.write(JSON.stringify(result)+'\n');

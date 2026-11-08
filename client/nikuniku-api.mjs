@@ -43,6 +43,7 @@ export const paths={
  request:(key,ws)=>`/v1/requests/${q(key)}?workspace_id=${q(ws)}`,
  job:(job,ws)=>`/v1/jobs/${q(job)}?workspace_id=${q(ws)}`,
  output:(job,ws)=>`/v1/jobs/${q(job)}/output?workspace_id=${q(ws)}`,
+ billingChannel:ws=>`/v1/billing/channel?workspace_id=${q(ws)}`,
  wallet:ws=>`/v1/wallet?workspace_id=${q(ws)}`,
  content:(asset,ws)=>`/v1/assets/${q(asset)}/content?workspace_id=${q(ws)}`,
 };
@@ -98,9 +99,45 @@ export async function uploadAudio(api,key,ws,bytes,{rights_ref,idempotency_key,s
 }
 // The sold mode that takes this many reference images, a song (audio 'external') and a continuation (tail_continuation),
 // read from GET /v1/capabilities; null when none does.
-export function pickMode(table,{images,audio,continueFrom}){
- for(const r of table?.releases??[])for(const m of r.modes??[])
-  if((m.audio==='external')===Boolean(audio)&&(m.mode==='tail_continuation')===Boolean(continueFrom)&&m.references_min<=images&&images<=m.references_max)
-   return {release:r.alias,mode:m.mode,duration_ms:m.duration_ms};
+export function pickMode(table,{images,audio,continueFrom,release,mode,duration_ms}){
+ if(!Array.isArray(table?.releases))return null;
+ for(const r of table.releases){
+  if(!r||typeof r.alias!=='string'||!Array.isArray(r.modes)||(release!==undefined&&r.alias!==release))continue;
+  for(const m of r.modes){
+   if(!m||typeof m.mode!=='string'||!Number.isSafeInteger(m.duration_ms)||m.duration_ms<1||
+     !Number.isSafeInteger(m.references_min)||!Number.isSafeInteger(m.references_max)||m.references_min<0||m.references_max<m.references_min||
+     !['silent','native','master','external'].includes(m.audio))continue;
+   if((mode===undefined||m.mode===mode)&&(duration_ms===undefined||m.duration_ms===duration_ms)&&
+      (m.audio==='external')===Boolean(audio)&&(m.mode==='tail_continuation')===Boolean(continueFrom)&&m.references_min<=images&&images<=m.references_max)
+    return {release:r.alias,mode:m.mode,duration_ms:m.duration_ms};
+  }
+ }
  return null;
+}
+
+// A5 (docs/creator/recipe-pipeline/SPEC.md §6): recipes are read from the API, never from a list built into the client.
+// A run is quoted first; a quote above the creator's ceiling is refused before /runs is called, and a dry run stops after
+// the quote, so neither can charge. The idempotency key derives from (workspace, recipe, inputs) exactly as the Python
+// client derives it, so running the same command again resumes the same run.
+export const validRecipe=v=>{if(typeof v!=='string'||!/^[a-z][a-z0-9_]{0,63}$/.test(v))throw new Refusal('USAGE','recipe_id must be lower snake_case');return v;};
+export const recipePaths={
+ list:()=>'/v1/recipes',
+ one:r=>`/v1/recipes/${q(validRecipe(r))}`,
+ quotes:r=>`/v1/recipes/${q(validRecipe(r))}/quotes`,
+ runs:r=>`/v1/recipes/${q(validRecipe(r))}/runs`,
+ run:(id,ws)=>`/v1/recipe-runs/${q(id)}?workspace_id=${q(ws)}`,
+};
+export const recipeRunKey=(ws,recipe,inputs)=>'rr-'+createHash('sha256').update(JSON.stringify([ws,recipe,Object.fromEntries(Object.entries(inputs).sort(([a],[b])=>a<b?-1:a>b?1:0))])).digest('hex').slice(0,32);
+export async function runRecipe(api,key,{workspace,recipe,inputs,maxCredits,dryRun=false,idempotencyKey,signal}){
+ validRecipe(recipe);validId(workspace,'workspace_id');
+ if(!inputs||typeof inputs!=='object'||Array.isArray(inputs))throw new Refusal('USAGE','inputs must be an object of name: value');
+ if(maxCredits===undefined&&!dryRun)throw new Refusal('USAGE','a run needs a credit ceiling (max credits); use a dry run to see the quote first');
+ if(maxCredits!==undefined&&(!Number.isSafeInteger(maxCredits)||maxCredits<0))throw new Refusal('USAGE','max credits must be a nonnegative safe whole number');
+ const quote=(await call(api,'POST',recipePaths.quotes(recipe),{body:{workspace_id:workspace,inputs},key,signal})).data;
+ if(!Number.isSafeInteger(quote?.max_units)||quote.max_units<0)throw new Refusal('INVALID_RESPONSE','the recipe quote has no max_units',1);
+ if(maxCredits!==undefined&&quote.max_units>maxCredits)
+  throw new ApiError({ok:false,error:{code:'ABOVE_MAX_CREDITS',message:`the quote is ${quote.max_units} credits, above the ceiling ${maxCredits}; nothing was charged`,details:{quote}}});
+ if(dryRun)return {ok:true,data:{dry_run:true,recipe_id:recipe,quote}};
+ return call(api,'POST',recipePaths.runs(recipe),{body:{workspace_id:workspace,inputs,max_credits:maxCredits,dry_run:false,
+  idempotency_key:idempotencyKey===undefined?recipeRunKey(workspace,recipe,inputs):validId(idempotencyKey,'idempotency_key')},key,signal});
 }

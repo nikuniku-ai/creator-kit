@@ -28,7 +28,6 @@ import urllib.request
 
 PNG = b'\x89PNG\r\n\x1a\n'
 TERMINAL = {'succeeded', 'failed', 'cancelled'}
-H3_DEFAULTS = {'release': 'h3', 'mode': 'image_to_video', 'duration_ms': 5083}
 LOOPBACK = {'127.0.0.1', 'localhost', '::1'}
 # The edge in front of api.nikuniku.ai refuses urllib's default User-Agent (HTTP 403, Cloudflare error 1010).
 USER_AGENT = 'nikuniku-python/1.0'
@@ -86,12 +85,25 @@ def audio_mime(data):
     return None
 
 
-def pick_mode(table, images, audio, continue_from):
-    """The sold mode that takes this many reference images, a song and a continuation, or None (same rule as the CLI)."""
-    for r in (table or {}).get('releases') or []:
-        for m in r.get('modes') or []:
-            if ((m.get('audio') == 'external') == bool(audio) and (m.get('mode') == 'tail_continuation') == bool(continue_from)
-                    and m.get('references_min', 0) <= images <= m.get('references_max', 0)):
+def pick_mode(table, images, audio, continue_from, release=None, mode=None, duration_ms=None):
+    """Select only a current, compatible catalog entry, including explicit overrides."""
+    if not isinstance(table, dict) or not isinstance(table.get('releases'), list):
+        return None
+    for r in table['releases']:
+        if not isinstance(r, dict) or not isinstance(r.get('alias'), str) or not isinstance(r.get('modes'), list):
+            continue
+        if release is not None and r['alias'] != release:
+            continue
+        for m in r['modes']:
+            if not isinstance(m, dict) or not isinstance(m.get('mode'), str):
+                continue
+            if any(type(m.get(k)) is not int or not 0 <= m[k] <= 9007199254740991 for k in ('duration_ms', 'references_min', 'references_max')):
+                continue
+            if m['duration_ms'] < 1 or m['references_max'] < m['references_min'] or m.get('audio') not in ('silent', 'native', 'master', 'external'):
+                continue
+            if ((mode is None or m['mode'] == mode) and (duration_ms is None or m['duration_ms'] == duration_ms)
+                    and (m['audio'] == 'external') == bool(audio) and (m['mode'] == 'tail_continuation') == bool(continue_from)
+                    and m['references_min'] <= images <= m['references_max']):
                 return {'release': r['alias'], 'mode': m['mode'], 'duration_ms': m['duration_ms']}
     return None
 
@@ -99,6 +111,15 @@ def pick_mode(table, images, audio, continue_from):
 def _id(value, name):
     if not isinstance(value, str) or not re.fullmatch(r'[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,127}', value):
         raise Refusal('USAGE', name + ' is not a valid id')
+    return value
+
+
+RECIPE_NAME = r'[a-z][a-z0-9_]{0,63}'
+
+
+def _recipe(value):
+    if not isinstance(value, str) or not re.fullmatch(RECIPE_NAME, value):
+        raise Refusal('USAGE', 'recipe_id must be lower snake_case')
     return value
 
 
@@ -165,6 +186,10 @@ class Client:
     def pricing(self):
         return self.call('GET', '/v1/pricing', auth=False)
 
+    def billing_channel(self, workspace):
+        """Read the effective workspace contract (billing:read); never changes an order or balance."""
+        return self.call('GET', self._q('/v1/billing/channel', workspace_id=_id(workspace, 'workspace')))
+
     def wallet(self, workspace):
         return self.call('GET', self._q('/v1/wallet', workspace_id=workspace))
 
@@ -218,6 +243,54 @@ class Client:
                 return state
             if time.monotonic() + poll_seconds > deadline:
                 raise Refusal('WAIT_TIMEOUT', 'job is still ' + state['state'])
+            time.sleep(poll_seconds)
+
+    # A5 (docs/creator/recipe-pipeline/SPEC.md section 6): recipes come from the API, never from a built-in list. A run is
+    # quoted first; above max_credits it is refused before /runs is called, and a dry run stops after the quote. The
+    # idempotency key is the CLI's (sha256 of JSON [workspace, recipe, inputs]) so both clients resume the same run.
+    def recipes(self):
+        return self.call('GET', '/v1/recipes', auth=False)
+
+    def recipe(self, recipe_id):
+        return self.call('GET', '/v1/recipes/' + urllib.parse.quote(_recipe(recipe_id)), auth=False)
+
+    def run(self, workspace, recipe_id, inputs, max_credits=None, dry_run=False, idempotency_key=None, wait=False,
+            timeout=1800, poll_seconds=5):
+        recipe = _recipe(recipe_id)
+        ws = _id(workspace if workspace is not None else self.me()['workspace_id'], 'workspace')
+        if not isinstance(inputs, dict) or not all(isinstance(k, str) and re.fullmatch(RECIPE_NAME, k) for k in inputs):
+            raise Refusal('USAGE', 'inputs must be a dict of lower snake_case name: value')
+        if max_credits is None and not dry_run:
+            raise Refusal('USAGE', 'a run needs max_credits; use dry_run=True to see the quote first')
+        if max_credits is not None and (type(max_credits) is not int or not 0 <= max_credits <= 9007199254740991):
+            raise Refusal('USAGE', 'max_credits must be a nonnegative safe whole number')
+        if wait:
+            _wait_controls(timeout, poll_seconds)
+        base = '/v1/recipes/' + urllib.parse.quote(recipe)
+        quote = self.call('POST', base + '/quotes', {'workspace_id': ws, 'inputs': inputs})
+        units = quote.get('max_units') if isinstance(quote, dict) else None
+        if type(units) is not int or not 0 <= units <= 9007199254740991:
+            raise Refusal('INVALID_RESPONSE', 'the recipe quote has no max_units')
+        if max_credits is not None and units > max_credits:
+            raise ApiError({'ok': False, 'error': {'code': 'ABOVE_MAX_CREDITS', 'details': {'quote': quote},
+                                                   'message': 'the quote is %d credits, above max_credits %d; nothing was charged'
+                                                              % (units, max_credits)}})
+        if dry_run:
+            return {'dry_run': True, 'recipe_id': recipe, 'quote': quote}
+        key = idempotency_key if idempotency_key is not None else 'rr-' + hashlib.sha256(
+            json.dumps([ws, recipe, dict(sorted(inputs.items()))], separators=(',', ':'), ensure_ascii=False).encode()).hexdigest()[:32]
+        run = self.call('POST', base + '/runs', {'workspace_id': ws, 'inputs': inputs, 'max_credits': max_credits,
+                                                 'dry_run': False, 'idempotency_key': _id(key, 'idempotency_key')})
+        if not wait:
+            return run
+        run_id = _id(run['run_id'], 'run_id')
+        deadline = time.monotonic() + timeout
+        while True:
+            state = self.call('GET', self._q('/v1/recipe-runs/' + urllib.parse.quote(run_id), workspace_id=ws))
+            if state['state'] in TERMINAL:
+                return state
+            if time.monotonic() + poll_seconds > deadline:
+                raise Refusal('WAIT_TIMEOUT', 'run is still ' + state['state'])
             time.sleep(poll_seconds)
 
     def download(self, workspace, job_id, out):
@@ -281,27 +354,16 @@ class Client:
         continue_from = _id(continue_from, 'continue_from') if continue_from is not None else None
         e1 = len(images) > 1 or audio is not None or continue_from is not None
         ws = _id(workspace if workspace is not None else self.me()['workspace_id'], 'workspace')
-        spec, table = dict(H3_DEFAULTS), None
-        try:
-            table = self.capabilities()
-            r = table['releases'][0]
-            if not e1:
-                spec = {'release': r['alias'], 'mode': r['modes'][0]['mode'], 'duration_ms': r['modes'][0]['duration_ms']}
-        except (Refusal, ApiError, KeyError, IndexError, TypeError):
-            pass
-        if e1:
-            picked = pick_mode(table, len(images), audio is not None, continue_from)
-            if picked:
-                spec = picked
-            elif not (release and mode):
-                raise Refusal('UNSUPPORTED', 'no sold release takes %d image(s)%s%s; see GET /v1/capabilities'
-                              % (len(images), ', a song' if audio is not None else '', ', a continuation' if continue_from else ''))
-        if release:
-            spec['release'] = _id(release, 'release')
-        if mode:
-            spec['mode'] = _id(mode, 'mode')
-        if duration_ms is not None:
-            spec['duration_ms'] = int(duration_ms)
+        release = _id(release, 'release') if release is not None else None
+        mode = _id(mode, 'mode') if mode is not None else None
+        if duration_ms is not None and (type(duration_ms) is not int or not 1 <= duration_ms <= 9007199254740991):
+            raise Refusal('USAGE', 'duration_ms must be a positive safe whole number')
+        table = self.capabilities()
+        spec = pick_mode(table, len(images), audio is not None, continue_from, release, mode, duration_ms)
+        if spec is None:
+            raise Refusal('UNSUPPORTED', 'no current sold mode matches these inputs and overrides; see GET /v1/capabilities')
+        _id(spec['release'], 'capability release')
+        _id(spec['mode'], 'capability mode')
         price = price_version or self.pricing()['price_version']
         steps = {}
         assets = [self.upload_png(ws, path, rights)['asset_id'] for path in images]

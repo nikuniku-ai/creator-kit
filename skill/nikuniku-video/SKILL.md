@@ -5,9 +5,11 @@ description: Generate a short image-to-video clip with the nikuniku.ai API — u
 
 # nikuniku.ai video generation
 
-nikuniku.ai turns one reference image and a prompt into a short video. Credits are prepaid: 1 credit = US$0.01 and video
-costs 8 credits per second of output (the live price list is `GET /v1/pricing`). The release on sale is `h3`:
-image-to-video, 5083 ms, 768x1344, 24 fps, one reference image.
+nikuniku.ai prepares and produces video through the same public API as the website. Read current capabilities before
+promising a mode, reference count, duration or audio support. Public `/v1/pricing` describes retail packs; authenticated
+`GET /v1/billing/channel?workspace_id=...` describes the workspace contract. Wholesale has no new recharge volume bonus
+or new consumption referral rewards. Neither response replaces the generation quote and the user's approved ceiling.
+The H3 single-reference commands below are examples, not proof that this release is currently available or qualified.
 
 ## Before you start
 
@@ -21,9 +23,17 @@ export NIKUNIKU_API_BASE="${NIKUNIKU_API_BASE:-https://api.nikuniku.ai}"
 export NIKUNIKU_API_KEY NIKUNIKU_WORKSPACE
 ```
 
-Every response is `{"ok":true,"data":...}` or `{"ok":false,"error":{"code","message"}}`. Show the user the error code
-as it is. Retry only 429 (after Retry-After) and 5xx; never retry other errors, and never resubmit with a new
-idempotency key after a timeout — replay the same key instead.
+Every response is `{"ok":true,"data":...}` or `{"ok":false,"error":{"code","message"}}`. Show the original error code.
+The shared CLI/MCP client never retries HTTP requests automatically. Do not use a generic 429/5xx retry rule for writes:
+a timeout, cancellation, unreadable response or server error can leave an accepted operation whose reply was lost.
+
+- After an unknown generation submit, use `nikuniku_request_status` or `GET /v1/requests/{idempotency_key}?workspace_id=...`
+  with the unchanged original key. With a known job, read that original job/output. `NOT_FOUND` remains unresolved;
+  it does not authorize a new key, changed command or repeated submit. Preserve original workspace, actor and input.
+- Drafting, uploads, saves, recipe runs, payments and cancellations have their own recovery contracts. A generation
+  request lookup cannot recover those operations. Do not automatically re-upload, re-draft, cancel, refund or recharge.
+- A caller may explicitly retry a read after 429/5xx with bounded waits and Retry-After, respecting its deadline and
+  cancellation. Reads never authorize a write or additional spend. Keep unresolved state visible instead of looping.
 
 ## 1. Price and balance
 
@@ -32,7 +42,12 @@ curl -s "$NIKUNIKU_API_BASE/v1/pricing"
 curl -s -H "authorization: Bearer $NIKUNIKU_API_KEY" "$NIKUNIKU_API_BASE/v1/wallet?workspace_id=$NIKUNIKU_WORKSPACE"
 ```
 
-`available_units` is the spendable credit balance.
+`available_units` is the spendable credit balance. Read `nikuniku_billing_channel` (or CLI `billing-channel --workspace <id>`)
+before describing account benefits. Missing/failed contract reads mean UNKNOWN, not retail eligibility. Only the
+server quote for the current qualified release determines the generation price; do not calculate it from a static rate.
+Recharge uses the signed-in website. Do not send its session-only recharge endpoints a bearer API key or expose a
+session/CSRF value in chat. The website binds confirmed channel/revision to the original order and restores unknown
+orders; a changed-channel rejection requires a fresh explicit choice, never an automatic new order.
 
 ## 2. Upload the reference image
 
@@ -56,10 +71,10 @@ The upload answers `"state":"available"` when the image passed the checks.
 
 ## Write the prompt in H3's official format
 
-The `h3` release runs MiniMax H3 in full-reference mode (Ref2VA) with one reference image. H3 follows its own prompt
+For a currently offered `h3` single-reference release, the example uses MiniMax H3 in full-reference mode (Ref2VA) with one reference image. H3 follows its own prompt
 structure much better than free text, so write the `prompt` field with MiniMax's official skill
 [`h3-prompt-writing`](https://github.com/MiniMax-AI/MiniMax-H3/tree/main/skills/h3-prompt-writing) (read its
-`references/ref-en.txt`; install it next to this skill). For nikuniku:
+`references/ref-en.txt` when available; do not install or modify another agent's configuration). For nikuniku:
 
 - Mode is Ref2VA. The uploaded image is `<Picture 1>`; define it in `subject_definitions` before using it anywhere else.
 - Six sections, in this order: `subject_definitions:`, `summary:`, `retention_analysis:`, `detailed_description:`,
@@ -72,7 +87,7 @@ structure much better than free text, so write the `prompt` field with MiniMax's
 
 You can write the prompt yourself, or let nikuniku's drafting model write it from the user's description in any language
 (`POST /v1/prompts/draft` {workspace_id, description, idempotency_key}; MCP `nikuniku_draft_prompt`; CLI `compose`). It
-charges by the model's token usage — usually 1 credit, at most 6, released in full if it fails — so tell the user first.
+may charge by token usage. Read the current drafting terms and obtain the item-specific ceiling first; never use it as free preparation.
 
 Save the prompt as `prompt.txt` and check it before saving the draft (free; nothing is saved or charged). Do not go on while
 `passed` is false: fix every entry in `errors` (this release sends one image, so only `<Picture 1>` exists — no `<Picture 2>`,
@@ -93,7 +108,7 @@ as `GET /v1/capabilities` lists it (no key needed; it also lists the image and p
 ```bash
 PROJECT=clip-$(date +%s)
 PRICE=$(curl -s "$NIKUNIKU_API_BASE/v1/pricing" | node -pe 'JSON.parse(require("fs").readFileSync(0)).data.price_version')
-DRAFT=$(node -e 'const [ws,p,price,asset]=process.argv.slice(1);console.log(JSON.stringify(JSON.stringify({project:{schema_version:1,workspace_id:ws,project_id:p,project_revision:1,shot_revision:1,capabilities_revision:"h3",price_version:price,mode:"image_to_video",prompt:require("fs").readFileSync("prompt.txt","utf8"),duration_ms:5083,asset_ids:[asset]},character_source:"upload",reference_id:asset,scene:"A sunny park.",confirmed_revision:1})))' "$NIKUNIKU_WORKSPACE" "$PROJECT" "$PRICE" "$ASSET")
+DRAFT=$(node -e 'const [ws,p,price,asset]=process.argv.slice(1);console.log(JSON.stringify(JSON.stringify({project:{schema_version:1,workspace_id:ws,project_id:p,project_revision:1,shot_revision:1,capabilities_revision:"h3",price_version:price,mode:"image_to_video",prompt:require("fs").readFileSync("prompt.txt","utf8"),duration_ms:5167,asset_ids:[asset]},character_source:"upload",reference_id:asset,scene:"A sunny park.",confirmed_revision:1})))' "$NIKUNIKU_WORKSPACE" "$PROJECT" "$PRICE" "$ASSET")
 curl -s -X POST "$NIKUNIKU_API_BASE/v1/drafts" -H "authorization: Bearer $NIKUNIKU_API_KEY" -H 'content-type: application/json' \
   -d "{\"workspace_id\":\"$NIKUNIKU_WORKSPACE\",\"draft_json\":$DRAFT}"
 QUOTE=$(curl -s -X POST "$NIKUNIKU_API_BASE/v1/quotes" -H "authorization: Bearer $NIKUNIKU_API_KEY" -H 'content-type: application/json' \
@@ -101,7 +116,7 @@ QUOTE=$(curl -s -X POST "$NIKUNIKU_API_BASE/v1/quotes" -H "authorization: Bearer
 echo "$QUOTE"
 ```
 
-Tell the user `max_units` (credits) before submitting. The quote expires at `expires_at` (about a minute); quote again if
+Tell the user `max_units` (credits) before submitting. The quote expires at `expires_at` (as returned by the API); quote again if
 it has passed.
 
 ## 4. Submit, wait and download
@@ -147,9 +162,9 @@ so to the user instead of dropping the song or the earlier shot.
 
 - MCP server: `node integrations/mcp/nikuniku-mcp.mjs` (stdio) with `NIKUNIKU_API_KEY` set — tools `nikuniku_me`,
   `nikuniku_capabilities`, `nikuniku_pricing`, `nikuniku_draft_prompt`, `nikuniku_check_prompt`,
-  `nikuniku_wallet`, `nikuniku_upload_png`, `nikuniku_upload_audio`, `nikuniku_save_draft`, `nikuniku_quote`,
+  `nikuniku_wallet`, `nikuniku_billing_channel`, `nikuniku_upload_png`, `nikuniku_upload_audio`, `nikuniku_save_draft`, `nikuniku_quote`,
   `nikuniku_submit`, `nikuniku_request_status`, `nikuniku_job_status`, `nikuniku_job_output`.
 - CLI: `node integrations/cli/nikuniku.mjs help` — `upload`, `compose`, `check`, `draft`, `quote`, `submit`, `wait`, `download`.
-- One step from the CLI: `node integrations/cli/nikuniku.mjs generate --workspace $NIKUNIKU_WORKSPACE --image ref.png --prompt prompt.txt --max-credits 60 --wait --out clip.mp4`. It uploads (dropping PNG metadata chunks), checks (exit 3 if the check fails), drafts, quotes, refuses above `--max-credits` (exit 4), submits, waits and downloads with a sha256 check; rerunning it resumes the same job.
+- One step from the CLI: `node integrations/cli/nikuniku.mjs generate --workspace $NIKUNIKU_WORKSPACE --image ref.png --prompt prompt.txt --max-credits 60 --wait --out clip.mp4`. It uploads (dropping PNG metadata chunks), checks (exit 3 if the check fails), drafts, quotes, refuses above `--max-credits` (exit 4), submits, waits and downloads with a sha256 check; retain its original request identity and use original-request recovery after an unknown submit; do not rerun the whole upload/draft flow as a recovery shortcut.
 
 The full contract is https://studio.nikuniku.ai/openapi.json.
