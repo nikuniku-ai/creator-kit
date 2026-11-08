@@ -82,3 +82,17 @@ test('--verify: each EDL check stands alone — re-formatted bytes (sha) and a r
  const receipt=JSON.parse(readFileSync(rPath,'utf8'));receipt.edl_sha256=sha(Buffer.from(edited));writeFileSync(rPath,JSON.stringify(receipt));
  v=await cli(['assemble','--verify',rPath]);assert.equal(v.code,3);assert.match(v.err.error.message,/EDL entry 1 \(s2\) differs from the receipt/);
 });
+
+// AC11 (2026-11-08 clarification): without a key assemble may only cut takes the server passed and whose file sha256
+// equals the sha256 the server reported. The ledger's semantics (checked on read) are what refuse a hand-edited ledger
+// that marks a failed or unverdicted take as adopted; assemble itself only has to find the adopted take.
+test('AC11: a ledger that adopts a take the server did not pass is refused (SCHEMA_INVALID) and nothing is written',async()=>{
+ const forged=[
+  ['adopted points at the failed take',l=>{l.shots[0].adopted={take:1,job_id:'job_s1_1',run_id:'job_s1_1'};}],
+  ['the adopted take has no verdict',l=>{Object.assign(l.shots[1].takes[0],{verdict:null});}],
+  ['adopted on a shot whose status is not adopted',l=>{l.shots[1].status='exhausted';}],
+ ];
+ for(const [why,edit] of forged){const x=project();const l=JSON.parse(readFileSync(x.ledgerFile,'utf8'));edit(l);writeFileSync(x.ledgerFile,JSON.stringify(l));
+  const r=await assemble(x);assert.equal(r.code,2,`${why}: ${r.stderr}`);assert.equal(r.err.error.code,'SCHEMA_INVALID',why);
+  assert.equal(existsSync(join(x.dir,'out')),false,why);}
+});

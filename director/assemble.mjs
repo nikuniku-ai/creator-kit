@@ -29,6 +29,8 @@ export async function assemble(o){
  if(ledger.plan_sha256!==planSha)throw new Refusal('LEDGER_MISMATCH','the ledger belongs to another plan (plan_sha256 differs)');
  const shots=[...plan.shots].sort((a,b)=>a.order-b.order);
  const picks=shots.map(s=>{const e=ledger.shots.find(x=>x.shot_id===s.id);return {shot:s,entry:e,take:e?.adopted?e.takes.find(t=>t.take===e.adopted.take):null};});
+ // The status/verdict conditions are a backstop: readJson's ledger semantics already refuse an adopted take that is not
+ // the first passed one (tests/assemble.test.mjs AC11). They only fire if those semantics are weakened.
  const missing=picks.filter(p=>p.entry?.status!=='adopted'||!p.take||p.take.verdict!=='passed').map(p=>p.shot.id);
  if(missing.length)return {exit:3,result:{ok:false,error:{code:'TAKE_NOT_ACCEPTED',message:`no adopted take for ${missing.join(', ')}; nothing was written`}}};
  const bad=[];
