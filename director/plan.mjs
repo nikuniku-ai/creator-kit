@@ -28,12 +28,14 @@ export function scaffold(inputs,{brief,planLang,projectId,merge='a_then_b',maxCr
  const sceneOf=role=>'sc-'+role.toLowerCase();
  let at=0;const hooks=[];
  const shots=merged.map(({role,shot},order)=>{
-  const len=shot.end_s-shot.start_s;
-  if(shot.hook)hooks.push({at_s:Math.round(at*1000)/1000,text:shot.hook});
-  at+=len;
-  return {id:`s${order+1}`,scene_id:sceneOf(role),order,duration_ms:clampMs(len),framing:shot.framing,camera_move:shot.camera_move,camera:null,
+  // Hook positions follow the plan's own (clamped) durations; hook and description TEXT stay in the breakdown: they can
+  // quote the source's people, props and lines (REVIEW-codex-p2.2 #4, #7).
+  const ms=clampMs(shot.end_s-shot.start_s);
+  if(shot.hook)hooks.push({at_s:at/1000,text:`待改編：鉤子位置（來源 ${role}:${shot.shot_index}）`});
+  at+=ms;
+  return {id:`s${order+1}`,scene_id:sceneOf(role),order,duration_ms:ms,framing:shot.framing,camera_move:shot.camera_move,camera:null,
    characters:[],props_enter:[],props_used:[],
-   action:`待改編：${shot.description??`${len.toFixed(2)}s`}`,dialogue:[],rating:'general',accept:null,continue_from:null,source_shot:`${role}:${shot.shot_index}`};
+   action:`待改編：來源 ${role}:${shot.shot_index}，${(ms/1000).toFixed(2)}s`,dialogue:[],rating:'general',accept:null,continue_from:null,source_shot:`${role}:${shot.shot_index}`};
  });
  const firstLine=brief.split('\n').map(l=>l.trim()).find(Boolean)??'';
  return {schema_version:1,project_id:projectId,revision:1,

@@ -107,11 +107,11 @@ tests/*.test.mjs   tests/mock-api.mjs（擴充）
 
 ### S3 改編計畫
 - 指令：`nikuniku plan --a <breakdown.json> [--b <breakdown.json>] --brief <brief.txt> --plan-lang <lang> --project <id> --out plan.json`（`--lang` 保留給訊息語言）
-- 產出 plan **骨架**：A 的鏡（與 B 的鏡，A＋B 時依 `--merge a_then_b|interleave`，預設 `a_then_b`）轉成 `shots[]`，`source_shot:"A:<i>"`；每鏡 `action` 預填「待改編：<原鏡描述或時長>」、`accept:null`、`rating:"general"`；`sources[]` 記兩份 breakdown 的 sha256 與 `usable_for`。
+- 產出 plan **骨架**：A 的鏡（與 B 的鏡，A＋B 時依 `--merge a_then_b|interleave`，預設 `a_then_b`）轉成 `shots[]`，`source_shot:"A:<i>"`；每鏡 `action` 預填「待改編：來源 <A|B>:<i>，<秒數>」（不帶原鏡描述）、`accept:null`、`rating:"general"`；`sources[]` 記兩份 breakdown 的 sha256 與 `usable_for`。
 - 真正的改編文字（新人物、新台詞、補景）由創作者的 IDE agent 改寫 plan，**不經我們的伺服器、不收費**；需要我們起草（例如 explicit 鏡）時走既有 `nikuniku compose`（`/v1/prompts/draft`，收費，先報價）。
-- 骨架**不搬**原片台詞、人物、道具（`dialogue/characters/props_*` 皆空），只帶結構：鏡序、時長、景別、運鏡、鉤子位置（`bible.hooks[].at_s` 依合併後時間軸）。`budget.max_credits` 預設 0（`--max-credits` 改），未設就無法 `shoot`。
+- 骨架**不搬**原片台詞、人物、道具（`dialogue/characters/props_*` 皆空），只帶結構：鏡序、時長、景別、運鏡、鉤子位置（`bible.hooks[].at_s` 依合併後、clamp 過的時長累加；`text` 為中性佔位，不搬原 hook 文字）。breakdown 的 description／hook 可能引用原片人物、道具與台詞，所以一律不進 plan（REVIEW-codex-p2.2 #4）。`budget.max_credits` 預設 0（`--max-credits` 改），未設就無法 `shoot`。
 - A＋B 合併的劇情一致性由 S4 lint 把關。
-- lint 的 `similarity.checked`：plan 的每個 `sources[]` 都有對應 `--source`（`source_id` 相同，且 CLI 下檔案 sha256＝`breakdown_sha256`）才為 true；plan 無 sources 時視為 true（沒有可比對的原片）。
+- lint 的 `similarity.checked`：plan 的每個 `sources[]` 都有對應 `--source`（`source_id` 相同，且檔案 sha256＝`breakdown_sha256`；程式呼叫 `lint()` 沒給 `sourceSha256s` 一律 false）才為 true；plan 無 sources 時視為 true（沒有可比對的原片）。
 
 ### S4 邏輯自檢
 - 指令：`nikuniku lint <plan.json> [--source <breakdown.json> ...] [--threshold 0.35] [--out lint-report.json]`；有 `error` 時 exit 3，只有 warning 時 exit 0。
@@ -120,15 +120,16 @@ tests/*.test.mjs   tests/mock-api.mjs（擴充）
 | code | severity | 觸發 |
 |---|---|---|
 | `L001_CHARACTER_UNDEFINED` | error | 鏡頭或台詞用到 `characters[]` 沒有的角色 id |
-| `L002_CHARACTER_BEFORE_INTRO` | error | 角色在其 `first_scene` 之前的場景出現（「人物憑空出現」） |
+| `L002_CHARACTER_BEFORE_INTRO` | error | 角色（列在 `characters` 或作為台詞 `speaker`）在其 `first_scene` 之前的場景出現（「人物憑空出現」）；同鏡同角色只報一次 |
 | `L003_PROP_NOT_ENTERED` | error | `props_used` 的道具在此鏡（含）之前沒有任何 `props_enter`（「道具未入場就使用」） |
-| `L004_SIMILARITY_TOO_HIGH` | error | 改編台詞（NFKC 正規化、去標點）對原片台詞的 3-gram 包含率 > 門檻（預設 0.35，`--threshold` 限 0–1）；CJK／假名／諺文用字元 3-gram，其餘用詞 3-gram。太短而不足三個 3-gram 的台詞，改以「正規化後與任一原片台詞完全相同且至少 2 個 token」判定 |
-| `L005_TIMELINE_REGRESSION` | error | 依鏡頭順序，場景 `story_time_min` 比前一場早且 `flashback:false`（「時間線倒退」） |
+| `L004_SIMILARITY_TOO_HIGH` | error | 改編台詞（NFKC 正規化、去標點）對原片台詞的 3-gram 包含率 > 門檻（預設 0.35，`--threshold` 限 0–1）；分詞以**字串片段**決定（不是整句）：CJK／假名／諺文每字一個 token，其餘連續字母數字為一個詞，所以英文句尾加一個漢字不會讓整句改用字元模式（REVIEW-codex-p2.2 #1）。太短而不足三個 3-gram 的台詞，改以「正規化後與任一原片台詞完全相同且至少 2 個 token」判定 |
+| `L005_TIMELINE_REGRESSION` | error | 依鏡頭順序**每次切換場景**（含回到已出現的場景），該場 `story_time_min` 比已演到的最晚時間早且 `flashback:false`（「時間線倒退」）；連續同場景的鏡只算一次 |
 | `L006_ACCEPT_MISSING` | warning | 鏡頭 `accept` 為 null（S9 會拒送） |
 | `L007_GAP_UNFILLED` | warning | `gaps[].filled:false` |
 | `L008_NAME_INCONSISTENT` | warning | 台詞語言為 X，但台詞含某角色在其他語言的名字、且不含該角色 X 語言的名字（跨語言改編的人名一致） |
 | `L009_REFERENCE_UNDEFINED` | error | 鏡頭指向不存在的 scene／prop／dependency 目標 |
 | `L010_SIMILARITY_NOT_CHECKED` | warning | plan 有 `sources[]` 但沒給原片 breakdown；報告 `similarity.checked:false`，**不算檢查過** |
+| `L011_FINDINGS_TRUNCATED` | warning | findings 超過 10000（報告 schema 上限）：error 優先保留，最後一筆寫明省略幾筆；`passed` 依完整清單判定 |
 
 - `shoot`／`run` 在送出前**自己跑一次 lint**：plan 有 `sources[]` 時必須以 `--source` 給齊對應 breakdown（sha256 要等於 `sources[].breakdown_sha256`），否則 exit 2 `SOURCES_REQUIRED`；lint 有 error 即 exit 3 `LINT_FAILED`，0 請求。
 

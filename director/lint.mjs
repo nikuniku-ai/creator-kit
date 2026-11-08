@@ -5,19 +5,18 @@ import {readFileSync} from 'node:fs';
 import {Refusal} from '../client/nikuniku-api.mjs';
 import {parse,number} from './cli.mjs';
 import {readJson,writeJson} from './breakdown.mjs';
+import {validate} from './jsonschema.mjs';
+import {semantics} from './semantics.mjs';
 
 const ordered=plan=>[...plan.shots].sort((a,b)=>a.order-b.order);
 const finding=(code,severity,path,message,{shot_id=null,scene_id=null,evidence=null}={})=>({code,severity,path,shot_id,scene_id,message,evidence});
 const shotPath=(plan,shot)=>`$.shots[${plan.shots.indexOf(shot)}]`;
 
-// Tokens for n-grams: characters for CJK, kana and hangul (no spaces between words), lower-cased words otherwise.
-const CJK=/[぀-ヿ㐀-鿿가-힯豈-﫿]/u;
-// NFKC first so full-width letters and compatibility forms cannot dodge the check (SPEC S4 L004).
-export function tokens(raw){
- const text=raw.normalize('NFKC');
- if(CJK.test(text))return [...text].filter(c=>/[\p{L}\p{N}]/u.test(c));
- return text.toLowerCase().split(/[^\p{L}\p{N}']+/u).filter(Boolean);
-}
+// Tokens for n-grams, decided per run of text (never per line, REVIEW-codex-p2.2 #1: one CJK character must not switch a
+// whole English line to character mode): each CJK, kana or hangul character is a token; any other run of letters and
+// digits is one lower-cased word. NFKC first so full-width letters and compatibility forms cannot dodge the check.
+const TOKEN=/[\u3040-\u30ff\u3400-\u9fff\uac00-\ud7af\uf900-\ufaff]|[^\s\p{P}\p{S}\u3040-\u30ff\u3400-\u9fff\uac00-\ud7af\uf900-\ufaff]+/gu;
+export function tokens(raw){return raw.normalize('NFKC').toLowerCase().match(TOKEN)??[];}
 export function grams(text,n=3){const t=tokens(text),out=new Set();for(let i=0;i+n<=t.length;i++)out.add(t.slice(i,i+n).join('\u0001'));return out;}
 // Share of the adapted line's 3-grams that also occur in the source dialogue (containment, not Jaccard: a short copied
 // line inside a long rewrite still counts as copied). Lines with fewer than three 3-grams are too short to judge.
@@ -37,8 +36,12 @@ export const RULES=[
  function charactersBeforeIntro(plan,out){
   const position=new Map();ordered(plan).forEach(s=>{if(!position.has(s.scene_id))position.set(s.scene_id,position.size);});
   const intro=new Map(plan.characters.map(c=>[c.id,position.get(c.first_scene)??Infinity]));
-  for(const s of ordered(plan))s.characters.forEach((c,i)=>{
-   if(intro.has(c)&&position.get(s.scene_id)<intro.get(c))out.push(finding('L002_CHARACTER_BEFORE_INTRO','error',`${shotPath(plan,s)}.characters[${i}]`,`character ${c} appears in scene ${s.scene_id} before their first scene`,{shot_id:s.id,scene_id:s.scene_id}));});
+  // Listed characters and speakers both count as appearing (REVIEW-codex-p2.2 #2); one finding per character per shot.
+  for(const s of ordered(plan)){
+   const present=new Map();s.characters.forEach((c,i)=>{if(!present.has(c))present.set(c,`${shotPath(plan,s)}.characters[${i}]`);});
+   s.dialogue.forEach((d,i)=>{if(d.speaker!==null&&!present.has(d.speaker))present.set(d.speaker,`${shotPath(plan,s)}.dialogue[${i}].speaker`);});
+   for(const [c,path] of present)if(intro.has(c)&&position.get(s.scene_id)<intro.get(c))out.push(finding('L002_CHARACTER_BEFORE_INTRO','error',path,`character ${c} appears in scene ${s.scene_id} before their first scene`,{shot_id:s.id,scene_id:s.scene_id}));
+  }
  },
  function propsNotEntered(plan,out){
   const entered=new Set(),known=new Set(plan.props.map(p=>p.id));
@@ -57,9 +60,11 @@ export const RULES=[
    if(c>ctx.similarity.threshold)out.push(finding('L004_SIMILARITY_TOO_HIGH','error',`${shotPath(plan,s)}.dialogue[${i}].text`,`dialogue repeats the source (3-gram containment ${c.toFixed(2)} > ${ctx.similarity.threshold})`,{shot_id:s.id,evidence:d.text}));});
  },
  function timeline(plan,out){
-  const scenes=new Map(plan.scenes.map(s=>[s.id,s])),seen=new Set();let latest=-Infinity;
+  // Every scene switch is checked, including a return to a scene already shown (REVIEW-codex-p2.2 #3); consecutive shots
+  // in the same scene are one appearance.
+  const scenes=new Map(plan.scenes.map(s=>[s.id,s]));let latest=-Infinity,previous=null;
   for(const s of ordered(plan)){
-   if(seen.has(s.scene_id))continue;seen.add(s.scene_id);
+   if(s.scene_id===previous)continue;previous=s.scene_id;
    const scene=scenes.get(s.scene_id);if(!scene||scene.flashback)continue;
    if(scene.story_time_min<latest)out.push(finding('L005_TIMELINE_REGRESSION','error',`$.scenes[${plan.scenes.indexOf(scene)}].story_time_min`,`scene ${scene.id} starts at minute ${scene.story_time_min}, before minute ${latest} already shown, and is not marked flashback`,{shot_id:s.id,scene_id:scene.id}));
    latest=Math.max(latest,scene.story_time_min);
@@ -67,10 +72,11 @@ export const RULES=[
  },
  function acceptMissing(plan,out){for(const s of plan.shots)if(!s.accept)out.push(finding('L006_ACCEPT_MISSING','warning',`${shotPath(plan,s)}.accept`,'shot has no accept block; shoot refuses it',{shot_id:s.id}));},
  function gapsUnfilled(plan,out){plan.gaps.forEach((g,i)=>{if(!g.filled)out.push(finding('L007_GAP_UNFILLED','warning',`$.gaps[${i}]`,`gap ${g.id} is not filled yet`));});},
- // L010: similarity only counts as checked when every plan source's breakdown was given (and, when the caller knows the
- // file hashes, the hash matches plan.sources[].breakdown_sha256). A plan without sources has nothing to compare against.
+ // L010: similarity only counts as checked when every plan source's breakdown was given with its file hash equal to
+ // plan.sources[].breakdown_sha256. A plan without sources has nothing to compare against.
  function similarityChecked(plan,out,ctx){
-  ctx.similarity.checked=plan.sources.every(src=>ctx.sources.some((b,i)=>b.source_id===src.source_id&&(!ctx.sourceSha256s||ctx.sourceSha256s[i]===src.breakdown_sha256)));
+  // Without the file hashes nothing proves these are the breakdowns the plan was built from (REVIEW-codex-p2.2 #5).
+  ctx.similarity.checked=plan.sources.every(src=>ctx.sources.some((b,i)=>b.source_id===src.source_id&&ctx.sourceSha256s?.[i]===src.breakdown_sha256));
   if(!ctx.similarity.checked)out.push(finding('L010_SIMILARITY_NOT_CHECKED','warning','$.sources','similarity to the source dialogue was not checked: pass every breakdown in sources[] with --source'));
  },
  function names(plan,out){
@@ -92,9 +98,18 @@ export const RULES=[
  },
 ];
 
+// lint-report.schema.json allows 10000 findings. Beyond that, errors are kept before warnings and the last slot says how
+// many were omitted (REVIEW-codex-p2.2 #6); `passed` is decided on the full list, and an error always survives the cut.
+export const MAX_FINDINGS=10000;
+function cap(all){
+ if(all.length<=MAX_FINDINGS)return all;
+ const sorted=[...all.filter(f=>f.severity==='error'),...all.filter(f=>f.severity!=='error')],kept=sorted.slice(0,MAX_FINDINGS-1);
+ return [...kept,finding('L011_FINDINGS_TRUNCATED','warning','$',`omitted ${all.length-kept.length} more findings; fix these and lint again`)];
+}
 export function lint(plan,{sources=[],sourceSha256s=null,threshold=0.35,planSha256}={}){
- const findings=[],ctx={sources,sourceSha256s,similarity:{max:0,threshold,n:3,checked:false}};
- for(const rule of RULES)rule(plan,findings,ctx);
+ const all=[],ctx={sources,sourceSha256s,similarity:{max:0,threshold,n:3,checked:false}};
+ for(const rule of RULES)rule(plan,all,ctx);
+ const findings=cap(all);
  return {schema_version:1,plan_sha256:planSha256??createHash('sha256').update(JSON.stringify(plan)).digest('hex'),
   passed:!findings.some(f=>f.severity==='error'),similarity:{max:Math.round(ctx.similarity.max*1000)/1000,threshold,n:3,checked:ctx.similarity.checked},findings};
 }
@@ -106,6 +121,10 @@ export async function command(args){
  const sourceSha256s=(o.source??[]).map(f=>createHash('sha256').update(readFileSync(f)).digest('hex'));
  const threshold=number(o,'threshold',{min:0,max:1,fallback:0.35});
  const report=lint(plan,{sources,sourceSha256s,threshold,planSha256:createHash('sha256').update(readFileSync(file)).digest('hex')});
+ // The report is checked against its own schema before it leaves (REVIEW-codex-p2.2 #6): a report we cannot read back is a bug.
+ const schema=JSON.parse(readFileSync(new URL('../schemas/lint-report.schema.json',import.meta.url),'utf8'));
+ const bad=[...validate(schema,report),...semantics('lint-report',report)];
+ if(bad.length)throw new Refusal('INTERNAL',`lint produced an invalid report: ${bad[0].path} ${bad[0].message}`,1);
  if(o.out)writeJson(o.out,report);
  const errorsCount=report.findings.filter(f=>f.severity==='error').length;
  if(!report.passed)return {exit:3,result:{ok:false,error:{code:'LINT_FAILED',message:`${errorsCount} error(s); see findings`},data:report}};
