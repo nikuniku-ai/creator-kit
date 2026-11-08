@@ -24,6 +24,7 @@ const strings=inputs=>inputs&&typeof inputs==='object'&&!Array.isArray(inputs)&&
 //   outcome: {verdict:'passed'|'failed'|'pending', failure_class?, route?, charged_units?}
 //          | {state:'failed'|'cancelled'} | {acceptance:'absent'} | {verdict:'weird'} | {polls:n, ...} (n running polls first)
 //   failRunOnce: the next runs call answers 503 (a crash between quote and run)
+//   outputHost: base URL put in output links; redirectFiles: /files/* answers 302 to this URL
 export function start(options={}){
  const director={outcomes:{},maxUnits:40,files:{},outputHost:null,...options.director};
  const requests=[],runs=new Map(),byKey=new Map(),quotes=new Map();let seq=0;
@@ -69,6 +70,7 @@ export function start(options={}){
     const path=req.url.split('?')[0],text=Buffer.concat(chunks).toString('utf8');let body;try{body=text?JSON.parse(text):undefined;}catch{body=text;}
     requests.push({method:req.method,path,url:req.url,body,authorization:req.headers.authorization??null});
     const base=`http://127.0.0.1:${server.address().port}`;
+    if(req.method==='GET'&&path.startsWith('/files/')&&director.redirectFiles){res.writeHead(302,{location:director.redirectFiles});res.end();return;}
     if(req.method==='GET'&&path.startsWith('/files/')){const run=runs.get(path.slice(7));
      if(!run){res.writeHead(404);res.end();return;}res.writeHead(200,{'content-type':'video/mp4'});res.end(output(run));return;}
     const route=routes[`${req.method} ${path}`];
@@ -79,7 +81,7 @@ export function start(options={}){
    });
   });
   server.listen(0,'127.0.0.1',()=>resolve({server,base:`http://127.0.0.1:${server.address().port}`,requests,director,runs,
-   reset(){requests.length=0;runs.clear();byKey.clear();quotes.clear();Object.assign(director,{outcomes:{},maxUnits:40,files:{},outputHost:null,failRunOnce:false});}}));
+   reset(){requests.length=0;runs.clear();byKey.clear();quotes.clear();Object.assign(director,{outcomes:{},maxUnits:40,files:{},outputHost:null,failRunOnce:false,redirectFiles:null});}}));
  });
 }
 if(import.meta.url===`file://${process.argv[1]}`){const {base}=await start();console.log(base);}

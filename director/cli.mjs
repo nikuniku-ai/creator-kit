@@ -3,7 +3,7 @@
 // {ok:false,error:{code,message}} envelope and the second is the localized message. Exit codes per SPEC §5.
 import {Refusal,ApiError} from '../client/nikuniku-api.mjs';
 import {pickLang,render} from './i18n.mjs';
-export const COMMANDS=new Set(['source','breakdown','plan','lint','whitebox','shoot','assemble']);
+export const COMMANDS=new Set(['source','breakdown','plan','lint','whitebox','shoot','assemble','run']);
 export function parse(rest,{multi=[],flags=[]}={}){
  const out={positional:[]};
  for(let i=0;i<rest.length;i++){const a=rest[i];
@@ -26,6 +26,7 @@ const handlers={
  whitebox:async o=>(await import('./whitebox.mjs')).command(o),
  shoot:async o=>(await import('./shoot.mjs')).command(o),
  assemble:async o=>(await import('./assemble.mjs')).command(o),
+ run:async o=>(await import('./run.mjs')).command(o),
 };
 export async function runDirector(command,rest){
  let lang='en';
@@ -35,6 +36,7 @@ export async function runDirector(command,rest){
   const {exit=0,result}=await handlers[command](args);
   process.stdout.write(JSON.stringify(result)+'\n');
   if(exit!==0&&result?.error)process.stderr.write(JSON.stringify({ok:false,error:result.error})+'\n'+render(lang,'error.'+result.error.code,{message:result.error.message})+'\n');
+  else if(exit===0)process.stderr.write(render(lang,'done.'+command)+'\n');
   return exit;
  }catch(error){
   if(error instanceof ApiError){process.stderr.write(JSON.stringify(error.body)+'\n'+render(lang,'error.API_ERROR',{message:error.body?.error?.code??''})+'\n');return 1;}

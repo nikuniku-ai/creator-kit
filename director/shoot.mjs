@@ -75,7 +75,8 @@ function waitControls(o){
 }
 // Local checks; all of them run before the first request.
 function preflight(o){
- const key=apiKey(process.env.NIKUNIKU_API_KEY),api=apiBase(process.env.NIKUNIKU_API_BASE);
+ // MCP passes its own key and base (o.apiKey/o.apiBase); the CLI reads the environment.
+ const key=apiKey(o.apiKey??process.env.NIKUNIKU_API_KEY),api=o.apiBase??apiBase(process.env.NIKUNIKU_API_BASE);
  const file=o.positional[0];if(!file)throw new Refusal('USAGE','shoot needs a plan path');
  const ledgerPath=need(o,'ledger'),plan=readJson(file,'plan'),planSha=sha(readFileSync(file));
  const wanted=o.shot??null,shots=[...plan.shots].sort((a,b)=>a.order-b.order).filter(s=>!wanted||wanted.includes(s.id));
@@ -111,6 +112,8 @@ export async function shoot(o){
   const q=encodeURIComponent;
   const rules=s=>({maxTakes:s.accept.max_takes,maxSameFailure:plan.budget.max_same_failure});
   const outcome={unavailable:[],timeout:[],notAdopted:[],budget:null};
+  // maxNewTakes bounds how many takes this call may submit (MCP: submit = 1, status = 0); the CLI has no bound.
+  let newTakes=0;const maxNew=o.maxNewTakes??Infinity;
   for(const shot of shots){
    let entry=ledger.shots.find(e=>e.shot_id===shot.id);
    if(!entry){entry={shot_id:shot.id,status:'not_started',adopted:null,takes:[]};ledger.shots.push(entry);}
@@ -123,15 +126,18 @@ export async function shoot(o){
     if(d.next==='stop')break;
     let t=entry.takes.at(-1);
     if(d.next==='retry'){
+     if(newTakes>=maxNew)break;
      const n=entry.takes.length+1;
      const quote=(await req('POST',`/v1/recipes/${q(recipe)}/quotes`,{workspace_id:ws,inputs:inputs(n)})).data;
      if(!Number.isSafeInteger(quote.max_units)||quote.max_units<0)throw new Refusal('INVALID_RESPONSE','the quote has no max_units',1);
      if(ledger.credits.quoted_total+quote.max_units>cap){entry.status='budget_stopped';save();outcome.budget={shot:shot.id,quote:quote.max_units};break;}
      t={take:n,idempotency_key:idempotencyKey(ws,recipe,planSha,shot.id,n),quote_id:validId(quote.quote_id,'quote_id'),quoted_units:quote.max_units,
       run_id:null,job_id:null,verdict:'pending',failure_class:null,route:null,charged_units:null,output_sha256:null};
-     entry.takes.push(t);entry.status='in_progress';save();
+     entry.takes.push(t);entry.status='in_progress';newTakes++;save();
     }
     if(t.run_id===null){
+     // A resend may spend (if the first call never reached the server), so it counts against maxNewTakes like a new take.
+     if(d.next==='resend'){if(newTakes>=maxNew)break;newTakes++;}
      const run=(await req('POST',`/v1/recipes/${q(recipe)}/runs`,runBody(t))).data;
      t.run_id=validId(run.run_id??run.job_id,'run_id');t.job_id=validId(run.job_id??run.run_id,'job_id');save();
     }
@@ -147,10 +153,12 @@ export async function shoot(o){
    if(outcome.budget)break;
    if(entry.status==='adopted'&&o.takes){const t=entry.takes.find(x=>x.take===entry.adopted.take);await downloadTake(api,key,ws,t.job_id,t.output_sha256,join(o.takes,shot.id+'.mp4'));}
    if(entry.status==='acceptance_unavailable')outcome.unavailable.push(shot.id);
-   else if(!['adopted','acceptance_timeout'].includes(entry.status))outcome.notAdopted.push(shot.id);
+   else if(!['adopted','acceptance_timeout','in_progress','not_started'].includes(entry.status))outcome.notAdopted.push(shot.id);
+   else if(['in_progress','not_started'].includes(entry.status)&&maxNew===Infinity)outcome.notAdopted.push(shot.id);
   }
   save();
-  const data={ledger:ledgerPath,quoted_total:ledger.credits.quoted_total,shots:ledger.shots.filter(e=>shots.some(s=>s.id===e.shot_id)).map(e=>({shot_id:e.shot_id,status:e.status,adopted_take:e.adopted?.take??null,takes:e.takes.length}))};
+  const data={ledger:ledgerPath,quoted_total:ledger.credits.quoted_total,shots:ledger.shots.filter(e=>shots.some(s=>s.id===e.shot_id)).map(e=>({shot_id:e.shot_id,status:e.status,adopted_take:e.adopted?.take??null,takes:e.takes.length,
+   next:decide(e.takes,rules(plan.shots.find(s=>s.id===e.shot_id))).next}))};
   const fail=(exit,code,message)=>({exit,result:{ok:false,error:{code,message},data}});
   if(outcome.budget)return fail(4,'ABOVE_MAX_CREDITS',`the next take of ${outcome.budget.shot} would quote ${outcome.budget.quote} credits, above the ${cap} credit limit; no run was sent`);
   if(outcome.unavailable.length)return fail(1,'ACCEPTANCE_UNAVAILABLE',`the server returned no acceptance verdict for ${outcome.unavailable.join(', ')}; nothing was adopted`);

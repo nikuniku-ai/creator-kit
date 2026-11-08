@@ -9,6 +9,7 @@ import {Server} from '@modelcontextprotocol/server';
 import {fileURLToPath} from 'node:url';
 import {readFile} from 'node:fs/promises';
 import {Refusal,ApiError,apiBase,apiKey,validId,call,paths,uploadPng,uploadAudio} from '../client/nikuniku-api.mjs';
+import {DIRECTOR_TOOLS,assertNoAdult} from '../director/mcp-tools.mjs'; // director kit (docs/director/SPEC.md §6); not part of the core export
 
 const idSchema={type:'string',pattern:'^[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,127}$',maxLength:128};
 const object=(properties,required=Object.keys(properties))=>({type:'object',properties,required,additionalProperties:false});
@@ -61,18 +62,21 @@ const TOOLS={
 const result=value=>({content:[{type:'text',text:JSON.stringify(value)}],structuredContent:value});
 const failure=value=>({...result(value),isError:true});
 
-export function createNikunikuMcpServer({base,key}={}){
- const api=apiBase(base);
+const allTools=(extra={})=>assertNoAdult({...TOOLS,...DIRECTOR_TOOLS,...extra});
+export const toolList=(extra)=>Object.entries(allTools(extra)).map(([name,t])=>({name,description:t.description,inputSchema:t.inputSchema,annotations:t.annotations}));
+export function createNikunikuMcpServer({base,key,extraTools}={}){
+ const api=apiBase(base),tools=allTools(extraTools); // AC13: refuses to start with an adult tool
  const server=new Server({name:'nikuniku',version:'1.0.0'},{capabilities:{tools:{}}});
- server.setRequestHandler('tools/list',async()=>({tools:Object.entries(TOOLS).map(([name,t])=>({name,description:t.description,inputSchema:t.inputSchema,annotations:t.annotations}))}));
+ server.setRequestHandler('tools/list',async()=>({tools:toolList(extraTools)}));
  server.setRequestHandler('tools/call',async(request,ctx)=>{
-  const name=request.params.name,tool=Object.hasOwn(TOOLS,name)?TOOLS[name]:null,args=request.params.arguments??{};
+  const name=request.params.name,tool=Object.hasOwn(tools,name)?tools[name]:null,args=request.params.arguments??{};
   try{
    if(!tool)throw new Refusal('USAGE','unknown tool');
    const keys=typeof args==='object'&&!Array.isArray(args)?Object.keys(args):null;
    if(!keys||keys.some(k=>!Object.hasOwn(tool.inputSchema.properties,k))||tool.inputSchema.required.some(k=>!keys.includes(k)))throw new Refusal('USAGE','arguments do not match the tool schema');
-   const token=name==='nikuniku_pricing'?undefined:apiKey(key);
-   return result(await tool.run(api,args,token,ctx?.mcpReq?.signal));
+   const token=name==='nikuniku_pricing'||tool.local?undefined:apiKey(key);
+   const value=await tool.run(api,args,token,ctx?.mcpReq?.signal);
+   return value?.ok===false?failure(value):result(value);
   }catch(error){
    if(error instanceof ApiError)return failure(error.body);
    const refusal=error instanceof Refusal?error:new Refusal('INTERNAL','unexpected error');
